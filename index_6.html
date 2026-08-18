@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BRICK 動画クリッパー</title>
+<style>
+  :root {
+    --accent: #2f6fed;
+    --accent-dark: #1f4fb0;
+    --green: #2f8f4e;
+    --orange: #e0563f;
+    --bg: #0f1115;
+    --card: #171a21;
+    --card-2: #1f232c;
+    --text: #eef0f4;
+    --text-dim: #9aa1ad;
+    --border: #2a2f3a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior-y: contain;
+  }
+  #app {
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
+  }
+  header {
+    padding: 14px 16px 10px; padding-top: calc(14px + env(safe-area-inset-top));
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+  }
+  header .logo {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px; color: white; flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header p { margin: 1px 0 0; font-size: 11px; color: var(--text-dim); }
+
+  main {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 16px 16px calc(90px + env(safe-area-inset-bottom));
+  }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 10px; color: var(--text-dim); font-weight: 600; letter-spacing: .02em; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    border: none; border-radius: 12px; padding: 13px 16px; font-size: 15px; font-weight: 700;
+    cursor: pointer; color: white; background: var(--accent); width: 100%;
+    transition: transform .08s ease, opacity .15s ease;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn.secondary { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+  .btn.green { background: var(--green); }
+  .btn.orange { background: var(--orange); }
+  .btn:disabled { opacity: .4; pointer-events: none; }
+  .btn.small { padding: 9px 12px; font-size: 13px; width: auto; }
+
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+
+  video.preview {
+    width: 100%; border-radius: 12px; background: #000; display: block;
+    max-height: 46vh; object-fit: contain;
+  }
+
+  .range-wrap { position: relative; height: 42px; margin-top: 14px; }
+  .range-track-bg {
+    position: absolute; top: 19px; left: 11px; right: 11px; height: 4px;
+    background: #333846; border-radius: 2px;
+  }
+  .range-track-fill {
+    position: absolute; top: 19px; height: 4px; background: var(--accent); border-radius: 2px;
+  }
+  .range-wrap input[type=range] {
+    position: absolute; left: 0; top: 0; width: 100%; margin: 0; height: 42px;
+    -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none;
+  }
+  .range-wrap input[type=range]::-webkit-slider-runnable-track { height: 42px; background: transparent; }
+  .range-wrap input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; pointer-events: auto;
+    width: 24px; height: 24px; border-radius: 50%; margin-top: 9px;
+    border: 3px solid #0f1115; cursor: pointer;
+  }
+  #startRange::-webkit-slider-thumb { background: var(--green); }
+  #endRange::-webkit-slider-thumb { background: var(--orange); }
+  .range-wrap input[type=range]::-moz-range-thumb {
+    pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; border: 3px solid #0f1115; cursor: pointer;
+  }
+  #startRange::-moz-range-thumb { background: var(--green); }
+  #endRange::-moz-range-thumb { background: var(--orange); }
+  .range-wrap input[type=range]::-moz-range-track { background: transparent; height: 4px; }
+
+  .time-labels { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--text-dim); }
+  .time-labels b { color: var(--text); font-weight: 700; }
+  .time-labels .start-label b { color: var(--green); }
+  .time-labels .end-label b { color: var(--orange); }
+
+  .dur-badge {
+    text-align: center; font-size: 13px; color: var(--text-dim); margin-top: 8px;
+  }
+  .dur-badge b { color: var(--accent); }
+
+  .empty-hint {
+    text-align: center; padding: 40px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.7;
+  }
+  .empty-hint .big { font-size: 34px; margin-bottom: 10px; }
+
+  nav.tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; background: rgba(20,22,28,.96); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav.tabbar button {
+    flex: 1; background: none; border: none; color: var(--text-dim);
+    padding: 10px 4px 8px; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  nav.tabbar button .ic { font-size: 20px; }
+  nav.tabbar button.active { color: var(--accent); }
+
+  .folder-status {
+    display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 10px;
+    background: var(--card-2); border: 1px solid var(--border); font-size: 13px;
+  }
+  .folder-status .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ok { background: var(--green); }
+  .dot.warn { background: #d9a53a; }
+  .dot.bad { background: var(--orange); }
+
+  .lib-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .lib-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  }
+  .lib-card video { width: 100%; height: 110px; object-fit: cover; background: #000; display: block; }
+  .lib-card .meta { padding: 8px 9px 10px; }
+  .lib-card .name { font-size: 12px; font-weight: 600; word-break: break-all; line-height: 1.35; }
+  .lib-card .sub { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 50;
+    display: none; align-items: center; justify-content: center; flex-direction: column; padding: 20px;
+  }
+  .overlay.active { display: flex; }
+  .overlay video { width: 100%; max-height: 70vh; border-radius: 10px; background: #000; }
+  .overlay .close-btn {
+    position: absolute; top: calc(16px + env(safe-area-inset-top)); right: 16px;
+    width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.12);
+    border: none; color: white; font-size: 18px;
+  }
+
+  #busyOverlay { z-index: 60; }
+  .spinner-box { text-align: center; }
+  .spinner {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 4px solid rgba(255,255,255,.18); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .busy-label { font-size: 14px; color: var(--text); margin-bottom: 6px; }
+  .busy-sub { font-size: 12px; color: var(--text-dim); }
+  .progress-bar-bg { width: 220px; height: 6px; border-radius: 3px; background: #2a2f3a; margin: 14px auto 0; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width .15s linear; }
+
+  #toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom));
+    background: #22262f; border: 1px solid var(--border); color: var(--text);
+    padding: 12px 14px; border-radius: 12px; font-size: 13px; text-align: center;
+    opacity: 0; transform: translateY(8px); transition: all .25s ease; pointer-events: none; z-index: 70;
+    box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+
+  input[type=file] { display: none; }
+  .file-label { display: block; }
+
+  .warn-box {
+    font-size: 12px; color: #d9a53a; background: rgba(217,165,58,.12);
+    border: 1px solid rgba(217,165,58,.3); padding: 10px 12px; border-radius: 10px; margin-top: 10px; line-height: 1.6;
+  }
+  .hidden-vid { position: fixed; left: -9999px; top: -9999px; width: 2px; height: 2px; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">B</div>
+    <div>
+      <h1>BRICK 動画クリッパー</h1>
+      <p>試合動画からワンシーンを切り出して保存</p>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===================== VIEW 1: クリップ作成 ===================== -->
+    <section id="view-clip" class="view active">
+
+      <div id="noVideoHint" class="card">
+        <div class="empty-hint">
+          <div class="big">🎬</div>
+          動画を選択すると、ここでシーンを切り出せます。
+        </div>
+        <label class="file-label">
+          <div class="btn">動画を選択</div>
+          <input type="file" id="videoInput" accept="video/*">
+        </label>
+      </div>
+
+      <div id="clipEditor" style="display:none;">
+        <div class="card">
+          <video id="previewVideo" class="preview" playsinline muted></video>
+
+          <div class="range-wrap">
+            <div class="range-track-bg"></div>
+            <div class="range-track-fill" id="rangeFill"></div>
+            <input type="range" id="startRange" min="0" max="0" step="0.05" value="0">
+            <input type="range" id="endRange" min="0" max="0" step="0.05" value="0">
+          </div>
+          <div class="time-labels">
+            <span class="start-label">開始 <b id="startLabel">0:00.0</b></span>
+            <span class="end-label">終了 <b id="endLabel">0:00.0</b></span>
+          </div>
+          <div class="dur-badge">切り出し長さ: <b id="clipDurLabel">0.0秒</b></div>
+
+          <div class="row" style="margin-top:14px;">
+            <button class="btn secondary small" id="reselectBtn">動画を選び直す</button>
+            <button class="btn secondary small" id="jumpStartBtn">開始位置へ移動</button>
+            <button class="btn secondary small" id="jumpEndBtn">終了位置へ移動</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>保存</h2>
+          <div class="row">
+            <button class="btn" id="saveNormalBtn">通常保存</button>
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button class="btn green" id="saveNiceBtn">Nice</button>
+            <button class="btn orange" id="saveFunBtn">Fun</button>
+          </div>
+          <div id="folderWarnBox" class="warn-box" style="display:none;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 2: 保存先設定 ===================== -->
+    <section id="view-settings" class="view">
+      <div class="card">
+        <h2>保存先フォルダ</h2>
+        <div class="folder-status" id="folderStatusBox">
+          <div class="dot warn"></div>
+          <div>未設定です。フォルダを選択してください。</div>
+        </div>
+        <div class="row" style="margin-top:12px;">
+          <button class="btn" id="pickFolderBtn">フォルダを選択</button>
+        </div>
+        <div id="permBtnWrap" style="display:none; margin-top:10px;">
+          <button class="btn secondary" id="grantPermBtn">保存の許可を確認する</button>
+        </div>
+        <div class="warn-box" id="unsupportedWarn" style="display:none;">
+          お使いのブラウザはフォルダへの直接保存に対応していません。保存ボタンを押すとダウンロードフォルダに保存されます。最新の Android 版 Google Chrome でのご利用を推奨します。
+        </div>
+      </div>
+      <div class="card">
+        <h2>ファイル名のルール</h2>
+        <div style="font-size:13px; color:var(--text-dim); line-height:1.8;">
+          元の動画ファイル名 + 連番（動画ごとに自動採番）<br>
+          「Nice」「Fun」で保存した場合は末尾にボタン名が付きます。<br>
+          例：match0812_0001.mp4 / match0812_0002_Nice.mp4
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 3: 保存済み一覧 ===================== -->
+    <section id="view-library" class="view">
+      <div class="card" style="display:flex; align-items:center; justify-content:space-between;">
+        <h2 style="margin:0;">保存済みクリップ</h2>
+        <button class="btn secondary small" id="refreshLibBtn">更新</button>
+      </div>
+      <div id="libraryGrid" class="lib-grid"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-view="view-clip"><span class="ic">✂️</span>クリップ作成</button>
+    <button class="tab-btn" data-view="view-settings"><span class="ic">📁</span>保存先設定</button>
+    <button class="tab-btn" data-view="view-library"><span class="ic">🎞️</span>保存済み一覧</button>
+  </nav>
+</div>
+
+<!-- 抽出用（非表示）ビデオ要素。captureStream + MediaRecorder で使用 -->
+<video id="extractVideo" class="hidden-vid" playsinline></video>
+
+<!-- プレビューモーダル（保存済み一覧のタップ再生） -->
+<div class="overlay" id="previewOverlay">
+  <button class="close-btn" id="closePreviewBtn">✕</button>
+  <video id="modalVideo" controls playsinline></video>
+</div>
+
+<!-- 処理中オーバーレイ -->
+<div class="overlay" id="busyOverlay">
+  <div class="spinner-box">
+    <div class="spinner"></div>
+    <div class="busy-label" id="busyLabel">処理中...</div>
+    <div class="busy-sub" id="busySub"></div>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =========================================================
+   *  状態
+   * ======================================================= */
+  const state = {
+    currentFile: null,
+    videoURL: null,
+    duration: 0,
+    startTime: 0,
+    endTime: 0,
+    dirHandle: null,
+  };
+
+  const FEATURE = {
+    fsAccess: typeof window.showDirectoryPicker === "function",
+    mediaRecorder: typeof window.MediaRecorder === "function",
+    captureStream: !!(HTMLVideoElement.prototype.captureStream || HTMLVideoElement.prototype.mozCaptureStream),
+  };
+
+  /* =========================================================
+   *  ユーティリティ
+   * ======================================================= */
+  function $(id) { return document.getElementById(id); }
+
+  function formatTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = (sec - m * 60).toFixed(1);
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  let toastTimer = null;
+  function toast(msg, ms) {
+    const el = $("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), ms || 3200);
+  }
+
+  function setBusy(on, label, sub) {
+    const ov = $("busyOverlay");
+    if (on) {
+      $("busyLabel").textContent = label || "処理中...";
+      $("busySub").textContent = sub || "";
+      $("progressFill").style.width = "0%";
+      ov.classList.add("active");
+    } else {
+      ov.classList.remove("active");
+    }
+  }
+  function setProgress(p) {
+    $("progressFill").style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + "%";
+  }
+
+  function sanitizeBase(name) {
+    return name.replace(/\.[^/.]+$/, "").replace(/[\\/:*?"<>|]/g, "_").trim() || "clip";
+  }
+
+  function nextSeq(base) {
+    const key = "brick-clipper-seq:" + base;
+    let n = parseInt(localStorage.getItem(key) || "0", 10) + 1;
+    localStorage.setItem(key, String(n));
+    return n;
+  }
+
+  function pad4(n) { return String(n).padStart(4, "0"); }
+
+  function buildFilename(base, seq, suffix, ext) {
+    return base + "_" + pad4(seq) + (suffix ? "_" + suffix : "") + "." + ext;
+  }
+
+  /* =========================================================
+   *  IndexedDB: 保存先フォルダハンドルの永続化
+   * ======================================================= */
+  const DB_NAME = "brick-clipper-db";
+  const STORE = "kv";
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(key, val) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(val, key);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /* =========================================================
+   *  タブ切り替え
+   * ======================================================= */
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      btn.classList.add("active");
+      $(btn.dataset.view).classList.add("active");
+      if (btn.dataset.view === "view-library") loadLibrary();
+      if (btn.dataset.view === "view-settings") refreshFolderStatus();
+    });
+  });
+
+  /* =========================================================
+   *  1. 動画選択
+   * ======================================================= */
+  $("videoInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    loadVideoFile(file);
+  });
+
+  $("reselectBtn").addEventListener("click", () => {
+    $("videoInput").value = "";
+    $("videoInput").click();
+  });
+
+  function loadVideoFile(file) {
+    if (state.videoURL) URL.revokeObjectURL(state.videoURL);
+    state.currentFile = file;
+    state.videoURL = URL.createObjectURL(file);
+
+    const pv = $("previewVideo");
+    pv.src = state.videoURL;
+    pv.muted = true;
+
+    pv.onloadedmetadata = () => {
+      state.duration = pv.duration || 0;
+      state.startTime = 0;
+      state.endTime = Math.min(state.duration, 5);
+      $("startRange").min = 0;
+      $("startRange").max = state.duration;
+      $("endRange").min = 0;
+      $("endRange").max = state.duration;
+      $("startRange").value = state.startTime;
+      $("endRange").value = state.endTime;
+      pv.currentTime = state.startTime;
+      updateLabels();
+      $("noVideoHint").style.display = "none";
+      $("clipEditor").style.display = "block";
+    };
+    pv.onerror = () => {
+      toast("動画を読み込めませんでした。別の動画をお試しください。");
+    };
+  }
+
+  /* =========================================================
+   *  2〜3. シークバー操作
+   * ======================================================= */
+  const startRange = $("startRange");
+  const endRange = $("endRange");
+  const previewVideo = $("previewVideo");
+
+  function updateLabels() {
+    $("startLabel").textContent = formatTime(state.startTime);
+    $("endLabel").textContent = formatTime(state.endTime);
+    $("clipDurLabel").textContent = Math.max(0, state.endTime - state.startTime).toFixed(1) + "秒";
+    if (state.duration > 0) {
+      const l = (state.startTime / state.duration) * 100;
+      const r = (state.endTime / state.duration) * 100;
+      $("rangeFill").style.left = l + "%";
+      $("rangeFill").style.width = Math.max(0, r - l) + "%";
+    }
+  }
+
+  startRange.addEventListener("input", () => {
+    let v = parseFloat(startRange.value);
+    if (v > state.endTime - 0.1) v = Math.max(0, state.endTime - 0.1);
+    state.startTime = v;
+    startRange.value = v;
+    previewVideo.currentTime = v;
+    updateLabels();
+  });
+
+  endRange.addEventListener("input", () => {
+    let v = parseFloat(endRange.value);
+    if (v < state.startTime + 0.1) v = Math.min(state.duration, state.startTime + 0.1);
+    state.endTime = v;
+    endRange.value = v;
+    previewVideo.currentTime = v;
+    updateLabels();
+  });
+
+  $("jumpStartBtn").addEventListener("click", () => { previewVideo.currentTime = state.startTime; });
+  $("jumpEndBtn").addEventListener("click", () => { previewVideo.currentTime = state.endTime; });
+
+  /* =========================================================
+   *  保存先フォルダ（File System Access API）
+   * ======================================================= */
+  async function ensureDirPermission() {
+    if (!state.dirHandle) return false;
+    const opts = { mode: "readwrite" };
+    try {
+      if ((await state.dirHandle.queryPermission(opts)) === "granted") return true;
+      if ((await state.dirHandle.requestPermission(opts)) === "granted") return true;
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  async function refreshFolderStatus() {
+    const box = $("folderStatusBox");
+    const permWrap = $("permBtnWrap");
+    $("unsupportedWarn").style.display = FEATURE.fsAccess ? "none" : "block";
+
+    if (!FEATURE.fsAccess) {
+      box.innerHTML = '<div class="dot bad"></div><div>この端末はフォルダ指定に非対応です。保存はダウンロードフォルダに行われます。</div>';
+      permWrap.style.display = "none";
+      return;
+    }
+    if (!state.dirHandle) {
+      box.innerHTML = '<div class="dot warn"></div><div>未設定です。フォルダを選択してください。</div>';
+      permWrap.style.display = "none";
+      return;
+    }
+    const granted = await (async () => {
+      try { return (await state.dirHandle.queryPermission({ mode: "readwrite" })) === "granted"; }
+      catch (e) { return false; }
+    })();
+    if (granted) {
+      box.innerHTML = '<div class="dot ok"></div><div>保存先: <b>' + escapeHtml(state.dirHandle.name) + '</b></div>';
+      permWrap.style.display = "none";
+    } else {
+      box.innerHTML = '<div class="dot warn"></div><div>保存先: ' + escapeHtml(state.dirHandle.name) + '（許可が必要です）</div>';
+      permWrap.style.display = "block";
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  $("pickFolderBtn").addEventListener("click", async () => {
+    if (!FEATURE.fsAccess) {
+      toast("このブラウザはフォルダ選択に対応していません");
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      state.dirHandle = handle;
+      await idbSet("saveDir", handle);
+      toast("保存先を設定しました: " + handle.name);
+      refreshFolderStatus();
+      updateFolderWarnBox();
+    } catch (e) {
+      if (e && e.name !== "AbortError") toast("フォルダの選択に失敗しました");
+    }
+  });
+
+  $("grantPermBtn").addEventListener("click", async () => {
+    const ok = await ensureDirPermission();
+    toast(ok ? "許可されました" : "許可されませんでした");
+    refreshFolderStatus();
+    updateFolderWarnBox();
+  });
+
+  async function restoreSavedFolder() {
+    try {
+      const handle = await idbGet("saveDir");
+      if (handle) {
+        state.dirHandle = handle;
+      }
+    } catch (e) { /* ignore */ }
+    refreshFolderStatus();
+    updateFolderWarnBox();
+  }
+
+  function updateFolderWarnBox() {
+    const box = $("folderWarnBox");
+    if (!FEATURE.fsAccess) {
+      box.style.display = "block";
+      box.textContent = "フォルダ指定に非対応の端末のため、保存ボタンを押すとダウンロードフォルダに保存されます。";
+    } else if (!state.dirHandle) {
+      box.style.display = "block";
+      box.textContent = "保存先フォルダが未設定です。「保存先設定」タブで設定してください（未設定のままでもダウンロードフォルダに保存できます）。";
+    } else {
+      box.style.display = "none";
+    }
+  }
+
+  /* =========================================================
+   *  4. 抽出＆保存（captureStream + MediaRecorder）
+   * ======================================================= */
+  function pickMimeType() {
+    const candidates = [
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4",
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ];
+    for (const c of candidates) {
+      try { if (MediaRecorder.isTypeSupported(c)) return c; } catch (e) {}
+    }
+    return "";
+  }
+
+  function extractClip(start, end, onProgress) {
+    return new Promise((resolve, reject) => {
+      const dur = end - start;
+      if (dur <= 0) { reject(new Error("終了位置は開始位置より後にしてください")); return; }
+
+      const ev = $("extractVideo");
+      ev.pause();
+      ev.src = state.videoURL;
+      ev.muted = false;
+      ev.volume = 0; // 抽出中の音量は下げる（キャプチャされる音声には影響しません）
+
+      let settled = false;
+      let seekTimeout = null;
+
+      const beginCapture = async () => {
+        if (settled) return;
+        settled = true;
+        ev.onseeked = null;
+        clearTimeout(seekTimeout);
+        try {
+          const stream = ev.captureStream ? ev.captureStream() : ev.mozCaptureStream();
+          const mimeType = pickMimeType();
+          const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+          const chunks = [];
+          rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+          const stopped = new Promise((res) => { rec.onstop = res; });
+          rec.start(200);
+          await ev.play();
+
+          const startWall = performance.now();
+          const tick = () => {
+            const elapsed = (performance.now() - startWall) / 1000;
+            if (onProgress) onProgress(Math.min(1, elapsed / dur));
+            if (ev.currentTime >= end - 0.05 || elapsed >= dur + 1.0 || ev.paused) {
+              ev.pause();
+              rec.stop();
+            } else {
+              requestAnimationFrame(tick);
+            }
+          };
+          requestAnimationFrame(tick);
+
+          await stopped;
+          const ext = mimeType.indexOf("mp4") !== -1 ? "mp4" : "webm";
+          resolve({ blob: new Blob(chunks, { type: mimeType || "video/webm" }), ext });
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      ev.onloadedmetadata = () => {
+        ev.onseeked = beginCapture;
+        // "seeked" は開始位置が既に現在位置（例: 0秒）と同じ場合など、発火しないことがある。
+        // その保険として一定時間で強制的にキャプチャを開始する。
+        seekTimeout = setTimeout(beginCapture, 400);
+        ev.currentTime = start;
+      };
+      ev.onerror = () => { settled = true; reject(new Error("動画の読み込みに失敗しました")); };
+    });
+  }
+
+  async function saveBlob(blob, filename) {
+    const ok = await ensureDirPermission();
+    if (ok && state.dirHandle) {
+      const fileHandle = await state.dirHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return { method: "folder" };
+    }
+    // フォールバック: ブラウザのダウンロード機能を使用
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return { method: "download" };
+  }
+
+  async function handleSave(suffix) {
+    if (!state.currentFile) return;
+    if (!FEATURE.mediaRecorder || !FEATURE.captureStream) {
+      toast("このブラウザは動画抽出に対応していません");
+      return;
+    }
+    const dur = state.endTime - state.startTime;
+    if (dur <= 0.05) { toast("開始位置と終了位置を正しく設定してください"); return; }
+    if (dur > 300) {
+      const proceed = confirm("切り出し範囲が" + dur.toFixed(0) + "秒あります。抽出にほぼ同じ時間がかかりますが続けますか？");
+      if (!proceed) return;
+    }
+
+    setBusy(true, "抽出中...", "0% (" + dur.toFixed(1) + "秒分)");
+    document.querySelectorAll("#view-clip .btn").forEach((b) => (b.disabled = true));
+
+    try {
+      const { blob, ext } = await extractClip(state.startTime, state.endTime, (p) => {
+        setProgress(p);
+        $("busySub").textContent = Math.round(p * 100) + "% (" + dur.toFixed(1) + "秒分)";
+      });
+      const base = sanitizeBase(state.currentFile.name);
+      const seq = nextSeq(base);
+      const filename = buildFilename(base, seq, suffix, ext);
+      const result = await saveBlob(blob, filename);
+
+      toast((result.method === "folder" ? "保存しました: " : "ダウンロードしました: ") + filename);
+
+      // 5. 「2に戻る」— 次の抽出開始位置を今回の終了位置にして続けて選べるようにする
+      state.startTime = state.endTime;
+      state.endTime = Math.min(state.duration, state.startTime + 5);
+      if (state.endTime <= state.startTime) state.endTime = state.duration;
+      startRange.value = state.startTime;
+      endRange.value = state.endTime;
+      previewVideo.currentTime = state.startTime;
+      updateLabels();
+    } catch (err) {
+      console.error(err);
+      toast("保存に失敗しました: " + (err && err.message ? err.message : err));
+    } finally {
+      setBusy(false);
+      document.querySelectorAll("#view-clip .btn").forEach((b) => (b.disabled = false));
+    }
+  }
+
+  $("saveNormalBtn").addEventListener("click", () => handleSave(""));
+  $("saveNiceBtn").addEventListener("click", () => handleSave("Nice"));
+  $("saveFunBtn").addEventListener("click", () => handleSave("Fun"));
+
+  /* =========================================================
+   *  保存済み一覧
+   * ======================================================= */
+  async function loadLibrary() {
+    const grid = $("libraryGrid");
+    grid.innerHTML = "";
+
+    if (!FEATURE.fsAccess) {
+      grid.innerHTML = '<div class="empty-hint">この端末はフォルダ一覧の表示に対応していません。</div>';
+      return;
+    }
+    if (!state.dirHandle) {
+      grid.innerHTML = '<div class="empty-hint">保存先フォルダが未設定です。「保存先設定」タブで設定してください。</div>';
+      return;
+    }
+    const ok = await ensureDirPermission();
+    if (!ok) {
+      grid.innerHTML = '<div class="empty-hint">フォルダへのアクセス許可が必要です。「保存先設定」タブで許可してください。</div>';
+      return;
+    }
+
+    grid.innerHTML = '<div class="empty-hint">読み込み中...</div>';
+    const items = [];
+    try {
+      for await (const entry of state.dirHandle.values()) {
+        if (entry.kind === "file" && /\.(mp4|webm|mov|m4v)$/i.test(entry.name)) {
+          const file = await entry.getFile();
+          items.push({ name: entry.name, file });
+        }
+      }
+    } catch (e) {
+      grid.innerHTML = '<div class="empty-hint">フォルダの読み込みに失敗しました。</div>';
+      return;
+    }
+    items.sort((a, b) => b.file.lastModified - a.file.lastModified);
+
+    grid.innerHTML = "";
+    if (items.length === 0) {
+      grid.innerHTML = '<div class="empty-hint">まだ保存されたクリップがありません。</div>';
+      return;
+    }
+    for (const item of items) {
+      const url = URL.createObjectURL(item.file);
+      const card = document.createElement("div");
+      card.className = "lib-card";
+      card.innerHTML =
+        '<video src="' + url + '" muted preload="metadata" playsinline></video>' +
+        '<div class="meta"><div class="name">' + escapeHtml(item.name) + '</div>' +
+        '<div class="sub">' + formatBytes(item.file.size) + '</div></div>';
+      const vid = card.querySelector("video");
+      vid.addEventListener("loadedmetadata", () => { try { vid.currentTime = Math.min(0.3, vid.duration / 2); } catch (e) {} });
+      card.addEventListener("click", () => openPreview(url, item.name));
+      grid.appendChild(card);
+    }
+  }
+  $("refreshLibBtn").addEventListener("click", loadLibrary);
+
+  function openPreview(url, name) {
+    const mv = $("modalVideo");
+    mv.src = url;
+    $("previewOverlay").classList.add("active");
+    mv.play().catch(() => {});
+  }
+  $("closePreviewBtn").addEventListener("click", () => {
+    const mv = $("modalVideo");
+    mv.pause();
+    mv.removeAttribute("src");
+    mv.load();
+    $("previewOverlay").classList.remove("active");
+  });
+
+  /* =========================================================
+   *  初期化
+   * ======================================================= */
+  (async function init() {
+    if (!FEATURE.mediaRecorder || !FEATURE.captureStream) {
+      toast("このブラウザは動画抽出に対応していません。最新のGoogle Chromeでお試しください。", 6000);
+    }
+    await restoreSavedFolder();
+  })();
+})();
+</script>
+</body>
+</html>
