@@ -67,6 +67,7 @@
   .btn.secondary { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
   .btn.green { background: var(--green); }
   .btn.orange { background: var(--orange); }
+  .btn.secondary.active-toggle { background: var(--accent); color: white; border-color: var(--accent); }
   .btn:disabled { opacity: .4; pointer-events: none; }
   .btn.small { padding: 9px 12px; font-size: 13px; width: auto; }
 
@@ -224,7 +225,12 @@
 
       <div id="clipEditor" style="display:none;">
         <div class="card">
-          <video id="previewVideo" class="preview" playsinline muted></video>
+          <video id="previewVideo" class="preview" playsinline></video>
+
+          <div class="row" style="margin-top:12px;">
+            <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
+            <button class="btn secondary" id="speedBtn">2倍速: OFF</button>
+          </div>
 
           <div class="range-wrap">
             <div class="range-track-bg"></div>
@@ -472,8 +478,10 @@
     state.videoURL = URL.createObjectURL(file);
 
     const pv = $("previewVideo");
+    pv.pause();
     pv.src = state.videoURL;
-    pv.muted = true;
+    pv.muted = false;
+    pv.playbackRate = is2xSpeed ? 2 : 1;
 
     pv.onloadedmetadata = () => {
       state.duration = pv.duration || 0;
@@ -487,6 +495,7 @@
       $("endRange").value = state.endTime;
       pv.currentTime = state.startTime;
       updateLabels();
+      updatePlayPauseLabel();
       $("noVideoHint").style.display = "none";
       $("clipEditor").style.display = "block";
     };
@@ -534,6 +543,35 @@
 
   $("jumpStartBtn").addEventListener("click", () => { previewVideo.currentTime = state.startTime; });
   $("jumpEndBtn").addEventListener("click", () => { previewVideo.currentTime = state.endTime; });
+
+  /* =========================================================
+   *  再生／一時停止・2倍速
+   * ======================================================= */
+  const playPauseBtn = $("playPauseBtn");
+  const speedBtn = $("speedBtn");
+  let is2xSpeed = false;
+
+  function updatePlayPauseLabel() {
+    playPauseBtn.textContent = previewVideo.paused ? "▶ 再生" : "⏸ 一時停止";
+  }
+
+  playPauseBtn.addEventListener("click", () => {
+    if (previewVideo.paused) {
+      previewVideo.play().catch(() => { toast("再生に失敗しました"); });
+    } else {
+      previewVideo.pause();
+    }
+  });
+  previewVideo.addEventListener("play", updatePlayPauseLabel);
+  previewVideo.addEventListener("pause", updatePlayPauseLabel);
+  previewVideo.addEventListener("ended", updatePlayPauseLabel);
+
+  speedBtn.addEventListener("click", () => {
+    is2xSpeed = !is2xSpeed;
+    previewVideo.playbackRate = is2xSpeed ? 2 : 1;
+    speedBtn.textContent = "2倍速: " + (is2xSpeed ? "ON" : "OFF");
+    speedBtn.classList.toggle("active-toggle", is2xSpeed);
+  });
 
   /* =========================================================
    *  保存先フォルダ（File System Access API）
@@ -741,6 +779,7 @@
       if (!proceed) return;
     }
 
+    previewVideo.pause();
     setBusy(true, "抽出中...", "0% (" + dur.toFixed(1) + "秒分)");
     document.querySelectorAll("#view-clip .btn").forEach((b) => (b.disabled = true));
 
