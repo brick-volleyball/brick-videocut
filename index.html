@@ -68,6 +68,8 @@
   .btn.green { background: var(--green); }
   .btn.orange { background: var(--orange); }
   .btn.secondary.active-toggle { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn.mark-start { background: var(--card-2); color: var(--green); border: 1.5px solid var(--green); }
+  .btn.mark-end { background: var(--card-2); color: var(--orange); border: 1.5px solid var(--orange); }
   .btn:disabled { opacity: .4; pointer-events: none; }
   .btn.small { padding: 9px 12px; font-size: 13px; width: auto; }
 
@@ -230,6 +232,11 @@
           <div class="row" style="margin-top:12px;">
             <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
             <button class="btn secondary" id="speedBtn">2倍速: OFF</button>
+          </div>
+
+          <div class="row" style="margin-top:10px;">
+            <button class="btn mark-start" id="markStartBtn">この瞬間を開始に</button>
+            <button class="btn mark-end" id="markEndBtn">この瞬間を終了に</button>
           </div>
 
           <div class="range-wrap">
@@ -543,6 +550,29 @@
 
   $("jumpStartBtn").addEventListener("click", () => { previewVideo.currentTime = state.startTime; });
   $("jumpEndBtn").addEventListener("click", () => { previewVideo.currentTime = state.endTime; });
+
+  // 再生中（一時停止中でも）の「今の瞬間」を開始／終了位置として指定するボタン。
+  // 動画は止めず、そのまま再生を続けられる。
+  $("markStartBtn").addEventListener("click", () => {
+    const t = previewVideo.currentTime;
+    if (t > state.endTime - 0.1) {
+      toast("終了位置より前の時間を指定してください");
+      return;
+    }
+    state.startTime = t;
+    startRange.value = t;
+    updateLabels();
+  });
+  $("markEndBtn").addEventListener("click", () => {
+    const t = previewVideo.currentTime;
+    if (t < state.startTime + 0.1) {
+      toast("開始位置より後の時間を指定してください");
+      return;
+    }
+    state.endTime = t;
+    endRange.value = t;
+    updateLabels();
+  });
 
   /* =========================================================
    *  再生／一時停止・2倍速
