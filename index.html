@@ -81,6 +81,18 @@
     max-height: 46vh; object-fit: contain;
   }
 
+  .video-wrap { position: relative; }
+  .range-badge {
+    position: absolute; top: 10px; left: 10px;
+    display: none; align-items: center; gap: 5px;
+    background: rgba(224, 86, 63, .94); color: white;
+    font-size: 12px; font-weight: 700; letter-spacing: .01em;
+    padding: 6px 11px; border-radius: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    pointer-events: none;
+  }
+  .range-badge.show { display: flex; }
+
   .range-wrap { position: relative; height: 42px; margin-top: 14px; }
   .range-track-bg {
     position: absolute; top: 19px; left: 11px; right: 11px; height: 4px;
@@ -227,10 +239,18 @@
 
       <div id="clipEditor" style="display:none;">
         <div class="card">
-          <video id="previewVideo" class="preview" playsinline></video>
+          <div class="video-wrap">
+            <video id="previewVideo" class="preview" playsinline></video>
+            <div class="range-badge" id="rangeBadge">✂ ここが切り取り範囲です</div>
+          </div>
 
           <div class="row" style="margin-top:12px;">
+            <button class="btn secondary" id="stepBackBtn">◀ 1秒</button>
             <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
+            <button class="btn secondary" id="stepFwdBtn">1秒 ▶</button>
+          </div>
+
+          <div class="row" style="margin-top:10px;">
             <button class="btn secondary" id="speedBtn">2倍速: OFF</button>
           </div>
 
@@ -528,6 +548,7 @@
       $("rangeFill").style.left = l + "%";
       $("rangeFill").style.width = Math.max(0, r - l) + "%";
     }
+    updateRangeBadge();
   }
 
   startRange.addEventListener("input", () => {
@@ -602,6 +623,28 @@
     speedBtn.textContent = "2倍速: " + (is2xSpeed ? "ON" : "OFF");
     speedBtn.classList.toggle("active-toggle", is2xSpeed);
   });
+
+  $("stepBackBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 1);
+  });
+  $("stepFwdBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 1);
+  });
+
+  /* =========================================================
+   *  「ここが切り取り範囲です」バッジ
+   *  ※ このバッジはプレビュー画面上の表示のみで、保存される動画には一切反映されない
+   *    （抽出は別の非表示video要素 extractVideo から行っているため）
+   * ======================================================= */
+  const rangeBadge = $("rangeBadge");
+  function updateRangeBadge() {
+    if (state.duration <= 0) { rangeBadge.classList.remove("show"); return; }
+    const t = previewVideo.currentTime;
+    const inRange = t >= state.startTime - 0.05 && t <= state.endTime + 0.05;
+    rangeBadge.classList.toggle("show", inRange);
+  }
+  previewVideo.addEventListener("timeupdate", updateRangeBadge);
+  previewVideo.addEventListener("seeked", updateRangeBadge);
 
   /* =========================================================
    *  保存先フォルダ（File System Access API）
