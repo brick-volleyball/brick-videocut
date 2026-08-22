@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>BRICK 動画クリッパー</title>
+<!-- ============================================================
+     BRICK 動画クリッパー
+     最終更新日時: 2026-08-22 09:20 JST
+     ------------------------------------------------------------
+     2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
+     ガードを追加。未ログイン/未登録のユーザーは自動的に
+     https://brick-volleyball.github.io/tools/ へリダイレクトする。
+     管理者アカウント(ADMIN_EMAILS)は登録状況にかかわらず常に利用可能
+     (tools/index.html, tools/list.htmlと同じ判定を追加)。
+     ============================================================ -->
 <style>
   :root {
     --accent: #2f6fed;
@@ -26,9 +36,10 @@
     overscroll-behavior-y: contain;
   }
   #app {
-    display: flex; flex-direction: column;
+    display: none; flex-direction: column;
     height: 100vh; height: 100dvh;
   }
+  #app.ready { display: flex; }
   header {
     padding: 14px 16px 10px; padding-top: calc(14px + env(safe-area-inset-top));
     border-bottom: 1px solid var(--border);
@@ -181,6 +192,7 @@
   }
 
   #busyOverlay { z-index: 60; }
+  #authOverlay { z-index: 95; }
   .spinner-box { text-align: center; }
   .spinner {
     width: 46px; height: 46px; border-radius: 50%;
@@ -213,6 +225,22 @@
 </style>
 </head>
 <body>
+
+<!-- ============================================================
+     サポーター登録確認ゲート
+     Firebase Authでログイン状態を確認し、Firestoreの
+     subscriptions/{email} でサポーター登録が有効かどうかを判定する。
+     未ログイン・未登録の場合はツール一覧ログインページへ戻す。
+     管理者アカウント(ADMIN_EMAILS)は常に許可する。
+     判定が完了する(showAppが呼ばれる)までは #app は非表示のまま。
+     ============================================================ -->
+<div class="overlay active" id="authOverlay">
+  <div class="spinner-box">
+    <div class="spinner" id="authSpinner"></div>
+    <div class="busy-label" id="authStatusLabel">サポーター登録を確認しています…</div>
+  </div>
+</div>
+
 <div id="app">
   <header>
     <div class="logo">B</div>
@@ -317,6 +345,9 @@
           「Nice」「Fun」で保存した場合は末尾にボタン名が付きます。<br>
           例：match0812_0001.mp4 / match0812_0002_Nice.mp4
         </div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-22 09:20</div>
       </div>
     </section>
 
@@ -971,5 +1002,92 @@
   })();
 })();
 </script>
+
+<!-- ============================================================
+     サポーター登録確認（Firebase Auth + Firestore）
+     tools/list.html, tools/index.html と同じFirebase設定・判定ロジックを
+     使用する。判定が終わるまで #app は非表示(#authOverlayが最前面)。
+     未ログイン・未登録の場合は tools/ のログインページへ戻す。
+     ============================================================ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  // ---- Firebase設定（tools/index.html, tools/list.htmlと同一） ----
+  const firebaseConfig = {
+    apiKey: "AIzaSyCn0rLPeyN_hw3_lLaYw1UMAzsSK3DpxuM",
+    authDomain: "team-video-uploader-503720.firebaseapp.com",
+    projectId: "team-video-uploader-503720",
+    storageBucket: "team-video-uploader-503720.firebasestorage.app",
+    messagingSenderId: "551674365524",
+    appId: "1:551674365524:web:f67d5524bc0b3ccec70fc1",
+    measurementId: "G-S97JSJJC1N"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+  const db = getFirestore(fbApp);
+
+  // ---- 管理者アカウント ----
+  // ここに載せたメールアドレスは、Firestoreのサポーター登録状況にかかわらず
+  // 常にツールを利用できる（tools/index.html, tools/list.htmlと同じリスト）
+  const ADMIN_EMAILS = ["akzds5456@gmail.com"];
+
+  // 未ログイン・未登録の場合の戻り先
+  const TOOLS_URL = "https://brick-volleyball.github.io/tools/";
+
+  const authOverlay = document.getElementById("authOverlay");
+  const authSpinner = document.getElementById("authSpinner");
+  const authStatusLabel = document.getElementById("authStatusLabel");
+  const appRoot = document.getElementById("app");
+
+  function showApp() {
+    authOverlay.classList.remove("active");
+    appRoot.classList.add("ready");
+  }
+
+  function blockAndRedirect(msg) {
+    authSpinner.style.display = "none";
+    authStatusLabel.textContent = msg;
+    setTimeout(() => { window.location.href = TOOLS_URL; }, 1500);
+  }
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user || !user.email) {
+      blockAndRedirect("サポーター登録が必要です。ログインページへ移動します…");
+      return;
+    }
+
+    // 管理者アカウントは登録状況を見ずに常に許可
+    if (ADMIN_EMAILS.includes(user.email)) {
+      console.log("[BRICK DEBUG] 管理者アカウントのため制限なしで許可:", user.email);
+      showApp();
+      return;
+    }
+
+    try {
+      const subRef = doc(db, "subscriptions", user.email);
+      const subSnap = await getDoc(subRef);
+
+      if (subSnap.exists()) {
+        const data = subSnap.data();
+        const isActive = data.status === "active";
+        const notExpired = !data.currentPeriodEnd || (new Date(data.currentPeriodEnd.toDate ? data.currentPeriodEnd.toDate() : data.currentPeriodEnd) > new Date());
+
+        if (isActive && notExpired) {
+          showApp();
+          return;
+        }
+      }
+
+      blockAndRedirect("サポーター登録が確認できませんでした。ログインページへ戻ります…");
+    } catch (err) {
+      console.error(err);
+      blockAndRedirect("確認中にエラーが発生しました。ログインページへ戻ります…");
+    }
+  });
+</script>
+
 </body>
 </html>
