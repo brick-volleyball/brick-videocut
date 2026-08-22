@@ -6,13 +6,19 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-22 09:20 JST
+     最終更新日時: 2026-08-22 10:40 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
      https://brick-volleyball.github.io/tools/ へリダイレクトする。
      管理者アカウント(ADMIN_EMAILS)は登録状況にかかわらず常に利用可能
      (tools/index.html, tools/list.htmlと同じ判定を追加)。
+
+     2026-08-22: シークバーに再生位置(白い縦線)を表示。長時間の動画でも
+     細かく位置指定できるよう、シークバーのピンチイン/アウトによる
+     ズーム・パン操作と、代替のズームボタンを追加。
+     また、現在の再生位置の静止画をJPEGとして保存できる機能を追加
+     (ファイル名: 元ファイル名_再生位置.jpg)。
      ============================================================ -->
 <style>
   :root {
@@ -104,32 +110,46 @@
   }
   .range-badge.show { display: flex; }
 
-  .range-wrap { position: relative; height: 42px; margin-top: 14px; }
+  .range-wrap {
+    position: relative; height: 42px; margin-top: 14px;
+    touch-action: none; -webkit-user-select: none; user-select: none;
+  }
   .range-track-bg {
     position: absolute; top: 19px; left: 11px; right: 11px; height: 4px;
     background: #333846; border-radius: 2px;
   }
   .range-track-fill {
     position: absolute; top: 19px; height: 4px; background: var(--accent); border-radius: 2px;
+    pointer-events: none;
   }
-  .range-wrap input[type=range] {
-    position: absolute; left: 0; top: 0; width: 100%; margin: 0; height: 42px;
-    -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none;
+  .range-playhead {
+    position: absolute; top: 4px; width: 2px; height: 34px;
+    background: #fff; opacity: .85; margin-left: -1px; border-radius: 1px;
+    pointer-events: none; z-index: 2; display: none;
   }
-  .range-wrap input[type=range]::-webkit-slider-runnable-track { height: 42px; background: transparent; }
-  .range-wrap input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; pointer-events: auto;
-    width: 24px; height: 24px; border-radius: 50%; margin-top: 9px;
-    border: 3px solid #0f1115; cursor: pointer;
+  .range-thumb {
+    position: absolute; top: 9px; width: 24px; height: 24px; border-radius: 50%;
+    margin-left: -12px; border: 3px solid #0f1115; cursor: pointer;
+    touch-action: none; z-index: 3;
   }
-  #startRange::-webkit-slider-thumb { background: var(--green); }
-  #endRange::-webkit-slider-thumb { background: var(--orange); }
-  .range-wrap input[type=range]::-moz-range-thumb {
-    pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; border: 3px solid #0f1115; cursor: pointer;
+  .range-thumb-start { background: var(--green); }
+  .range-thumb-end { background: var(--orange); }
+
+  .zoom-bar {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    margin-top: 10px;
   }
-  #startRange::-moz-range-thumb { background: var(--green); }
-  #endRange::-moz-range-thumb { background: var(--orange); }
-  .range-wrap input[type=range]::-moz-range-track { background: transparent; height: 4px; }
+  .zoom-btn {
+    width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--card-2); color: var(--text); font-size: 16px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+  }
+  .zoom-btn:disabled { opacity: .35; pointer-events: none; }
+  .zoom-label { font-size: 12px; color: var(--text-dim); min-width: 64px; text-align: center; }
+  .zoom-reset-btn {
+    font-size: 11px; color: var(--accent); background: none; border: none; cursor: pointer;
+    text-decoration: underline; padding: 0;
+  }
 
   .time-labels { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--text-dim); }
   .time-labels b { color: var(--text); font-weight: 700; }
@@ -287,11 +307,18 @@
             <button class="btn mark-end" id="markEndBtn">この瞬間を終了に</button>
           </div>
 
-          <div class="range-wrap">
-            <div class="range-track-bg"></div>
+          <div class="range-wrap" id="rangeWrap">
+            <div class="range-track-bg" id="rangeTrackBg"></div>
             <div class="range-track-fill" id="rangeFill"></div>
-            <input type="range" id="startRange" min="0" max="0" step="0.05" value="0">
-            <input type="range" id="endRange" min="0" max="0" step="0.05" value="0">
+            <div class="range-playhead" id="rangePlayhead"></div>
+            <div class="range-thumb range-thumb-start" id="startThumb"></div>
+            <div class="range-thumb range-thumb-end" id="endThumb"></div>
+          </div>
+          <div class="zoom-bar">
+            <button type="button" class="zoom-btn" id="zoomOutBtn">－</button>
+            <span class="zoom-label" id="zoomLabel">全体表示</span>
+            <button type="button" class="zoom-btn" id="zoomInBtn">＋</button>
+            <button type="button" class="zoom-reset-btn" id="zoomResetBtn" style="display:none;">全体に戻す</button>
           </div>
           <div class="time-labels">
             <span class="start-label">開始 <b id="startLabel">0:00.0</b></span>
@@ -314,6 +341,9 @@
           <div class="row" style="margin-top:10px;">
             <button class="btn green" id="saveNiceBtn">Nice</button>
             <button class="btn orange" id="saveFunBtn">Fun</button>
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button class="btn secondary" id="saveSnapshotBtn">📷 静止画を保存</button>
           </div>
           <div id="folderWarnBox" class="warn-box" style="display:none;"></div>
         </div>
@@ -347,7 +377,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-22 09:20</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-22 10:40</div>
       </div>
     </section>
 
@@ -545,12 +575,7 @@
       state.duration = pv.duration || 0;
       state.startTime = 0;
       state.endTime = Math.min(state.duration, 5);
-      $("startRange").min = 0;
-      $("startRange").max = state.duration;
-      $("endRange").min = 0;
-      $("endRange").max = state.duration;
-      $("startRange").value = state.startTime;
-      $("endRange").value = state.endTime;
+      setViewFromAnchor(state.duration / 2, 50, 1); // ズームをリセットして全体表示に
       pv.currentTime = state.startTime;
       updateLabels();
       updatePlayPauseLabel();
@@ -565,43 +590,217 @@
   /* =========================================================
    *  2〜3. シークバー操作
    * ======================================================= */
-  const startRange = $("startRange");
-  const endRange = $("endRange");
   const previewVideo = $("previewVideo");
+  const rangeWrap = $("rangeWrap");
+  const rangeTrackBg = $("rangeTrackBg");
+  const rangeFill = $("rangeFill");
+  const rangePlayhead = $("rangePlayhead");
+  const startThumb = $("startThumb");
+  const endThumb = $("endThumb");
+  const zoomInBtn = $("zoomInBtn");
+  const zoomOutBtn = $("zoomOutBtn");
+  const zoomResetBtn = $("zoomResetBtn");
+  const zoomLabelEl = $("zoomLabel");
+
+  /* ---- シークバーの表示ズーム／パン（長時間動画で細かい位置指定をしやすくする） ---- */
+  const MAX_ZOOM = 60;
+  let zoomLevel = 1;   // 1 = 動画全体を表示
+  let viewStart = 0;   // 現在シークバーに表示中の範囲（秒）
+  let viewEnd = 0;
+
+  function timeToPercent(t) {
+    if (viewEnd <= viewStart) return 0;
+    return ((t - viewStart) / (viewEnd - viewStart)) * 100;
+  }
+  function percentToTime(p) {
+    return viewStart + (p / 100) * (viewEnd - viewStart);
+  }
+  function getRectPercent(clientX) {
+    const rect = rangeWrap.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+  }
+
+  // anchorTime（絶対時間）が、表示上ちょうど anchorPercent(0-100) の位置にくるように
+  // viewStart/viewEndを再計算する。ピンチのズーム＋パンを同時に扱うための共通関数。
+  function setViewFromAnchor(anchorTime, anchorPercent, newZoom) {
+    const total = state.duration || 0;
+    zoomLevel = Math.max(1, Math.min(MAX_ZOOM, newZoom));
+    if (total <= 0) { viewStart = 0; viewEnd = 0; return; }
+    const viewDur = total / zoomLevel;
+    let vs = anchorTime - (anchorPercent / 100) * viewDur;
+    let ve = vs + viewDur;
+    if (vs < 0) { ve -= vs; vs = 0; }
+    if (ve > total) { vs -= (ve - total); ve = total; }
+    viewStart = Math.max(0, vs);
+    viewEnd = Math.min(total, viewStart + viewDur);
+  }
+
+  function ensureTimeVisible(t) {
+    if (zoomLevel <= 1 || state.duration <= 0) return;
+    if (t < viewStart || t > viewEnd) {
+      setViewFromAnchor(t, 50, zoomLevel);
+      renderRangeUI();
+    }
+  }
+
+  function updateZoomLabel() {
+    if (zoomLevel <= 1.02) {
+      zoomLabelEl.textContent = "全体表示";
+      zoomResetBtn.style.display = "none";
+    } else {
+      zoomLabelEl.textContent = zoomLevel.toFixed(1) + "倍";
+      zoomResetBtn.style.display = "inline";
+    }
+    zoomOutBtn.disabled = zoomLevel <= 1.02;
+    zoomInBtn.disabled = zoomLevel >= MAX_ZOOM;
+  }
+
+  function updatePlayhead() {
+    if (state.duration <= 0) { rangePlayhead.style.display = "none"; return; }
+    const p = timeToPercent(previewVideo.currentTime);
+    if (p < 0 || p > 100) { rangePlayhead.style.display = "none"; return; }
+    rangePlayhead.style.display = "block";
+    rangePlayhead.style.left = p + "%";
+  }
+
+  function renderRangeUI() {
+    if (state.duration <= 0) return;
+    const sp = timeToPercent(state.startTime);
+    const ep = timeToPercent(state.endTime);
+    const cs = Math.max(0, Math.min(100, sp));
+    const ce = Math.max(0, Math.min(100, ep));
+    rangeFill.style.left = cs + "%";
+    rangeFill.style.width = Math.max(0, ce - cs) + "%";
+    startThumb.style.left = sp + "%";
+    endThumb.style.left = ep + "%";
+    startThumb.style.display = (sp < -3 || sp > 103) ? "none" : "block";
+    endThumb.style.display = (ep < -3 || ep > 103) ? "none" : "block";
+    updatePlayhead();
+    updateZoomLabel();
+  }
 
   function updateLabels() {
     $("startLabel").textContent = formatTime(state.startTime);
     $("endLabel").textContent = formatTime(state.endTime);
     $("clipDurLabel").textContent = Math.max(0, state.endTime - state.startTime).toFixed(1) + "秒";
-    if (state.duration > 0) {
-      const l = (state.startTime / state.duration) * 100;
-      const r = (state.endTime / state.duration) * 100;
-      $("rangeFill").style.left = l + "%";
-      $("rangeFill").style.width = Math.max(0, r - l) + "%";
-    }
+    renderRangeUI();
     updateRangeBadge();
   }
 
-  startRange.addEventListener("input", () => {
-    let v = parseFloat(startRange.value);
-    if (v > state.endTime - 0.1) v = Math.max(0, state.endTime - 0.1);
-    state.startTime = v;
-    startRange.value = v;
-    previewVideo.currentTime = v;
-    updateLabels();
+  // ---- 開始／終了つまみのドラッグ操作 ----
+  function bindThumbDrag(thumbEl, kind) {
+    thumbEl.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      try { thumbEl.setPointerCapture(e.pointerId); } catch (err) {}
+      const onMove = (ev) => {
+        const t = percentToTime(getRectPercent(ev.clientX));
+        if (kind === "start") {
+          let v = Math.max(0, t);
+          if (v > state.endTime - 0.1) v = Math.max(0, state.endTime - 0.1);
+          state.startTime = v;
+          previewVideo.currentTime = v;
+        } else {
+          let v = Math.min(state.duration, t);
+          if (v < state.startTime + 0.1) v = Math.min(state.duration, state.startTime + 0.1);
+          state.endTime = v;
+          previewVideo.currentTime = v;
+        }
+        updateLabels();
+      };
+      const onUp = (ev) => {
+        try { thumbEl.releasePointerCapture(e.pointerId); } catch (err) {}
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    });
+  }
+  bindThumbDrag(startThumb, "start");
+  bindThumbDrag(endThumb, "end");
+
+  // ---- ピンチでズーム／パン（2本指） ----
+  let pinch = null;
+  rangeWrap.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const [t1, t2] = e.touches;
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const midPercent = getRectPercent((t1.clientX + t2.clientX) / 2);
+      pinch = { startDist: dist || 1, startZoom: zoomLevel, anchorTime: percentToTime(midPercent) };
+    }
+  }, { passive: false });
+
+  rangeWrap.addEventListener("touchmove", (e) => {
+    if (pinch && e.touches.length === 2) {
+      e.preventDefault();
+      const [t1, t2] = e.touches;
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const midPercent = getRectPercent((t1.clientX + t2.clientX) / 2);
+      const newZoom = pinch.startZoom * (dist / pinch.startDist);
+      setViewFromAnchor(pinch.anchorTime, midPercent, newZoom);
+      renderRangeUI();
+    }
+  }, { passive: false });
+
+  const endPinch = (e) => { if (e.touches.length < 2) pinch = null; };
+  rangeWrap.addEventListener("touchend", endPinch);
+  rangeWrap.addEventListener("touchcancel", endPinch);
+
+  // ---- ズームしている時、トラック背景を指1本でドラッグして表示範囲をパン ----
+  let pan = null;
+  rangeTrackBg.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1 && zoomLevel > 1.02) {
+      pan = { startX: e.touches[0].clientX, vs: viewStart, ve: viewEnd };
+    }
+  }, { passive: false });
+  rangeTrackBg.addEventListener("touchmove", (e) => {
+    if (pan && e.touches.length === 1) {
+      e.preventDefault();
+      const rect = rangeWrap.getBoundingClientRect();
+      const dxPercent = ((e.touches[0].clientX - pan.startX) / (rect.width || 1)) * 100;
+      const viewDur = pan.ve - pan.vs;
+      const dxTime = (dxPercent / 100) * viewDur;
+      const total = state.duration || 0;
+      let vs = pan.vs - dxTime;
+      let ve = pan.ve - dxTime;
+      if (vs < 0) { ve -= vs; vs = 0; }
+      if (ve > total) { vs -= (ve - total); ve = total; }
+      viewStart = Math.max(0, vs);
+      viewEnd = Math.min(total, viewStart + viewDur);
+      renderRangeUI();
+    }
+  }, { passive: false });
+  const endPan = () => { pan = null; };
+  rangeTrackBg.addEventListener("touchend", endPan);
+  rangeTrackBg.addEventListener("touchcancel", endPan);
+
+  // ---- ズームボタン（PC操作やピンチが使えない場合の代替） ----
+  const ZOOM_STEP = 1.6;
+  zoomInBtn.addEventListener("click", () => {
+    const center = (viewStart + viewEnd) / 2;
+    setViewFromAnchor(center, 50, zoomLevel * ZOOM_STEP);
+    renderRangeUI();
+  });
+  zoomOutBtn.addEventListener("click", () => {
+    const center = (viewStart + viewEnd) / 2;
+    setViewFromAnchor(center, 50, zoomLevel / ZOOM_STEP);
+    renderRangeUI();
+  });
+  zoomResetBtn.addEventListener("click", () => {
+    setViewFromAnchor((state.duration || 0) / 2, 50, 1);
+    renderRangeUI();
   });
 
-  endRange.addEventListener("input", () => {
-    let v = parseFloat(endRange.value);
-    if (v < state.startTime + 0.1) v = Math.min(state.duration, state.startTime + 0.1);
-    state.endTime = v;
-    endRange.value = v;
-    previewVideo.currentTime = v;
-    updateLabels();
+  $("jumpStartBtn").addEventListener("click", () => {
+    previewVideo.currentTime = state.startTime;
+    ensureTimeVisible(state.startTime);
   });
-
-  $("jumpStartBtn").addEventListener("click", () => { previewVideo.currentTime = state.startTime; });
-  $("jumpEndBtn").addEventListener("click", () => { previewVideo.currentTime = state.endTime; });
+  $("jumpEndBtn").addEventListener("click", () => {
+    previewVideo.currentTime = state.endTime;
+    ensureTimeVisible(state.endTime);
+  });
 
   // 再生中（一時停止中でも）の「今の瞬間」を開始／終了位置として指定するボタン。
   // 動画は止めず、そのまま再生を続けられる。
@@ -612,7 +811,6 @@
       return;
     }
     state.startTime = t;
-    startRange.value = t;
     updateLabels();
   });
   $("markEndBtn").addEventListener("click", () => {
@@ -622,7 +820,6 @@
       return;
     }
     state.endTime = t;
-    endRange.value = t;
     updateLabels();
   });
 
@@ -676,6 +873,8 @@
   }
   previewVideo.addEventListener("timeupdate", updateRangeBadge);
   previewVideo.addEventListener("seeked", updateRangeBadge);
+  previewVideo.addEventListener("timeupdate", updatePlayhead);
+  previewVideo.addEventListener("seeked", updatePlayhead);
 
   /* =========================================================
    *  保存先フォルダ（File System Access API）
@@ -903,9 +1102,8 @@
       state.startTime = state.endTime;
       state.endTime = Math.min(state.duration, state.startTime + 5);
       if (state.endTime <= state.startTime) state.endTime = state.duration;
-      startRange.value = state.startTime;
-      endRange.value = state.endTime;
       previewVideo.currentTime = state.startTime;
+      ensureTimeVisible(state.startTime);
       updateLabels();
     } catch (err) {
       console.error(err);
@@ -919,6 +1117,46 @@
   $("saveNormalBtn").addEventListener("click", () => handleSave(""));
   $("saveNiceBtn").addEventListener("click", () => handleSave("Nice"));
   $("saveFunBtn").addEventListener("click", () => handleSave("Fun"));
+  $("saveSnapshotBtn").addEventListener("click", () => handleSaveSnapshot());
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function formatTimeForFilename(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    return (h > 0 ? pad2(h) + "h" : "") + pad2(m) + "m" + pad2(s) + "s";
+  }
+
+  async function handleSaveSnapshot() {
+    if (!state.currentFile) return;
+    if (previewVideo.readyState < 2) {
+      toast("動画の読み込みが完了していません");
+      return;
+    }
+    const btn = $("saveSnapshotBtn");
+    btn.disabled = true;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = previewVideo.videoWidth || 1280;
+      canvas.height = previewVideo.videoHeight || 720;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) { toast("静止画の書き出しに失敗しました"); return; }
+      const base = sanitizeBase(state.currentFile.name);
+      const posLabel = formatTimeForFilename(previewVideo.currentTime);
+      const filename = base + "_" + posLabel + ".jpg";
+      const result = await saveBlob(blob, filename);
+      toast((result.method === "folder" ? "保存しました: " : "ダウンロードしました: ") + filename);
+    } catch (err) {
+      console.error(err);
+      toast("静止画の保存に失敗しました: " + (err && err.message ? err.message : err));
+    } finally {
+      btn.disabled = false;
+    }
+  }
 
   /* =========================================================
    *  保存済み一覧
