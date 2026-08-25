@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-25 23:05 JST
+     最終更新日時: 2026-08-25 23:35 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -60,6 +60,15 @@
      2026-08-25 (微調整): ◀1秒/再生/1秒▶行と「この瞬間を開始/終了に」行の
      文字が2行に折り返されて見づらかったため、文字サイズを縮小し折り返さない
      ようにした。
+
+     2026-08-25 (不具合修正): 端末の処理が重く実再生がリアルタイムに追いつか
+     ない場合、抽出（保存）が指定した範囲より手前で打ち切られ、末尾が数秒
+     欠けて保存されてしまう不具合を修正。打ち切り判定を「経過時間(壁時計)が
+     切り出し長さ+1秒を超えたら終了」から「実際にend地点まで再生が進んだか
+     (または動画そのものが終端に達したか)」を基準にする方式に変更し、経過
+     時間の上限は完全に固まった場合の保険として大きく取るようにした（切り出
+     し長さ×4+10秒）。あわせて、抽出中に一時的に再生が止まってしまった場合は
+     自動的に再生を再開するようにした。
      ============================================================ -->
 <style>
   :root {
@@ -479,7 +488,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 23:05</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 23:35</div>
       </div>
     </section>
 
@@ -1182,6 +1191,11 @@
           await ev.play();
 
           const startWall = performance.now();
+          // 端末の負荷で実再生がリアルタイムに追いつかない（コマ落ちや一時的な
+          // 停止が起きる）ことがあるため、経過時間(壁時計)だけで早期に打ち切らない。
+          // 打ち切りは「実際に end まで再生が進んだか」を主な基準にし、
+          // 経過時間の上限はあくまで“完全に固まった場合”の保険として大きめに取る。
+          const MAX_ELAPSED = dur * 4 + 10;
           const tick = () => {
             if (cancelToken && cancelToken.cancelled) {
               wasCancelled = true;
@@ -1191,12 +1205,22 @@
             }
             const elapsed = (performance.now() - startWall) / 1000;
             if (onProgress) onProgress(Math.min(1, elapsed / dur));
-            if (ev.currentTime >= end - 0.05 || elapsed >= dur + 1.0 || ev.paused) {
+            if (ev.currentTime >= end - 0.05 || ev.ended) {
               ev.pause();
               rec.stop();
-            } else {
-              requestAnimationFrame(tick);
+              return;
             }
+            if (elapsed >= MAX_ELAPSED) {
+              // 大幅に遅延・停止したままの場合のみ、保険として打ち切る
+              ev.pause();
+              rec.stop();
+              return;
+            }
+            if (ev.paused) {
+              // 一時的に再生が止まってしまった場合は再開を試みる（すぐには諦めない）
+              ev.play().catch(() => {});
+            }
+            requestAnimationFrame(tick);
           };
           requestAnimationFrame(tick);
 
