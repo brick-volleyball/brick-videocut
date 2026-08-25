@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-25 13:10 JST
+     最終更新日時: 2026-08-25 22:40 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -44,6 +44,18 @@
        選択範囲を全高の帯で強調する編集ソフト風の太めのバー(48px)に変更。
        ミニマップはバー下端に統合。バッジと重複するテキストの時刻表示は
        廃止した。
+
+     2026-08-25 (改善): 動画抜き出し中にキャンセルできるボタンを処理中
+     オーバーレイに追加。
+     シークバー・ボタン配置を再調整:
+     ・ズームは「ピンチ操作のみ」に簡略化(＋－ボタン等は等倍時は非表示、
+       ズーム中のみ「全体に戻す」と表示範囲を左右に動かすボタンが出る)。
+     ・シークバー/トリムバーの縦幅をさらに縮小(48px→40px)。
+     ・トリムバーは上半分のタッチで再生位置(白い線)、下半分のタッチで
+       近い方の開始/終了ハンドルが反応するように分離(狭いつまみを正確に
+       つままなくても操作できるようにするため)。
+     ・「開始/終了位置へ移動」ボタンは◀1秒/再生/1秒▶の行の両端に統合。
+       「この瞬間を開始/終了に」ボタンはその下の専用の行に変更。
      ============================================================ -->
 <style>
   :root {
@@ -145,25 +157,25 @@
   .overlay-icon-btn-bottom { top: auto; bottom: 8px; }
   .overlay-icon-btn.active-toggle { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-  /* シークバー: 時刻バッジ + トリムバー */
-  .seek-block { position: relative; margin-top: 22px; height: 76px; }
+  /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
+  .seek-block { position: relative; margin-top: 20px; height: 62px; }
   .time-badge {
     position: absolute; top: 0; transform: translateX(-50%);
-    color: #fff; font-size: 10px; font-weight: 800; padding: 3px 7px; border-radius: 8px;
+    color: #fff; font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 7px;
     white-space: nowrap; pointer-events: none; z-index: 4; display: none;
   }
   .time-badge-start { background: var(--green); }
   .time-badge-end { background: var(--orange); }
   .time-badge::after {
-    content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 9px;
+    content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 6px;
     margin-left: -1px;
   }
   .time-badge-start::after { background: var(--green); }
   .time-badge-end::after { background: var(--orange); }
 
   .trim-bar {
-    position: absolute; left: 0; right: 0; top: 28px; height: 48px;
-    background: var(--card-2); border: 1px solid var(--border); border-radius: 10px;
+    position: absolute; left: 0; right: 0; top: 22px; height: 40px;
+    background: var(--card-2); border: 1px solid var(--border); border-radius: 9px;
     overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none;
   }
   .trim-selection {
@@ -180,12 +192,13 @@
     border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #fff;
     pointer-events: none; z-index: 2; display: none;
   }
+  /* つまみは表示のみ（操作はトリムバー本体の上半分/下半分で受ける） */
   .trim-handle {
     position: absolute; top: 0; bottom: 5px; width: 9px; margin-left: -4.5px;
-    border-radius: 4.5px; cursor: pointer; touch-action: none; z-index: 3;
+    border-radius: 4.5px; pointer-events: none; z-index: 3;
     display: flex; align-items: center; justify-content: center;
   }
-  .trim-handle::after { content: ""; width: 2px; height: 14px; background: rgba(255,255,255,.65); border-radius: 1px; }
+  .trim-handle::after { content: ""; width: 2px; height: 12px; background: rgba(255,255,255,.65); border-radius: 1px; }
   .trim-handle-start { background: var(--green); }
   .trim-handle-end { background: var(--orange); }
   .trim-minimap {
@@ -197,39 +210,35 @@
     position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .7; border-radius: 2px;
   }
 
-  .zoom-bar {
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    margin-top: 8px;
-  }
-  .zoom-btn {
-    width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border);
-    background: var(--card-2); color: var(--text); font-size: 14px; font-weight: 700;
+  /* ズーム中のみ表示: 全体に戻す／表示範囲を左右に動かす（等倍時はこの分の高さごと消える） */
+  .zoom-controls { display: none; flex-direction: column; align-items: center; gap: 4px; margin-top: 6px; }
+  .zoom-controls-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .zoom-pan-btn {
+    width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--card-2); color: var(--text); font-size: 15px; font-weight: 700; line-height: 1;
     display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
   }
-  .zoom-btn:disabled { opacity: .35; pointer-events: none; }
-  .zoom-label { font-size: 11px; color: var(--text-dim); min-width: 56px; text-align: center; }
-  .zoom-reset-btn {
-    font-size: 11px; color: var(--accent); background: none; border: none; cursor: pointer;
-    text-decoration: underline; padding: 0;
+  .zoom-reset-pill {
+    font-size: 11px; font-weight: 700; color: var(--accent);
+    background: rgba(47,111,237,.12); border: 1px solid rgba(47,111,237,.4);
+    border-radius: 20px; padding: 4px 12px; cursor: pointer;
   }
-  .zoom-range-text {
-    text-align: center; font-size: 10.5px; color: var(--text-dim); margin-top: 4px; display: none;
-  }
+  .zoom-range-text { text-align: center; font-size: 10.5px; color: var(--text-dim); }
 
-  /* 開始/終了: 設定・移動アイコン列 */
-  .mark-jump-row { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
-  .icon-btn-group { display: flex; gap: 6px; }
+  /* 1秒送り/戻し・再生の行に統合した「開始/終了位置へ移動」アイコン */
+  .step-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .step-row .btn { flex: 1 1 auto; }
   .icon-btn {
     width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
   .icon-btn-outline-end { background: var(--card-2); border: 1.5px solid var(--orange); color: var(--orange); }
-  .icon-btn-fill-start { background: var(--green); color: #fff; }
-  .icon-btn-fill-end { background: var(--orange); color: #fff; }
-  .dur-display { text-align: center; }
-  .dur-display-label { font-size: 11px; color: var(--text-dim); }
-  .dur-display-value { font-size: 15px; font-weight: 800; color: var(--accent); margin-top: 2px; }
+
+  /* 開始/終了に設定するボタンの行（1秒送り等とは別の行） */
+  .dur-line { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+  .dur-line b { color: var(--accent); font-weight: 800; font-size: 13px; }
+  .mark-row { margin-top: 8px; }
 
   .empty-hint {
     text-align: center; padding: 40px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.7;
@@ -294,6 +303,7 @@
   .busy-sub { font-size: 12px; color: var(--text-dim); }
   .progress-bar-bg { width: 220px; height: 6px; border-radius: 3px; background: #2a2f3a; margin: 14px auto 0; overflow: hidden; }
   .progress-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width .15s linear; }
+  .busy-cancel-btn { margin-top: 18px; }
 
   #toast {
     position: fixed; left: 16px; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom));
@@ -368,13 +378,21 @@
             </button>
           </div>
 
-          <div class="row" style="margin-top:12px;">
+          <!-- 1秒送り/戻し・再生。両端に「開始/終了位置へ移動」アイコンを統合 -->
+          <div class="step-row">
+            <button type="button" class="icon-btn icon-btn-outline-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
+            </button>
             <button class="btn secondary" id="stepBackBtn">◀ 1秒</button>
             <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
             <button class="btn secondary" id="stepFwdBtn">1秒 ▶</button>
+            <button type="button" class="icon-btn icon-btn-outline-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+            </button>
           </div>
 
           <!-- シークバー: つまみの上の時刻バッジ + 太めのトリムバー -->
+          <!-- 上半分をタッチ: 白い再生位置の線を動かす／下半分をタッチ: 近い方の開始・終了ハンドルを動かす -->
           <div class="seek-block">
             <div class="time-badge time-badge-start" id="startBadge">0:00.0</div>
             <div class="time-badge time-badge-end" id="endBadge">0:00.0</div>
@@ -391,36 +409,28 @@
             </div>
           </div>
 
-          <div class="zoom-bar">
-            <button type="button" class="zoom-btn" id="zoomOutBtn">－</button>
-            <span class="zoom-label" id="zoomLabel">全体表示</span>
-            <button type="button" class="zoom-btn" id="zoomInBtn">＋</button>
-            <button type="button" class="zoom-reset-btn" id="zoomResetBtn" style="display:none;">全体に戻す</button>
+          <!-- ズーム中のみ表示（案B: ピンチのみで拡大縮小。等倍時はここが丸ごと消える） -->
+          <div class="zoom-controls" id="zoomControls">
+            <div class="zoom-controls-row">
+              <button type="button" class="zoom-pan-btn" id="panLeftBtn" aria-label="表示範囲を左に動かす">‹</button>
+              <button type="button" class="zoom-reset-pill" id="zoomResetBtn">全体に戻す</button>
+              <button type="button" class="zoom-pan-btn" id="panRightBtn" aria-label="表示範囲を右に動かす">›</button>
+            </div>
+            <div class="zoom-range-text" id="zoomRangeText"></div>
           </div>
-          <div class="zoom-range-text" id="zoomRangeText"></div>
 
-          <!-- 開始/終了: 設定・移動アイコン列 -->
-          <div class="mark-jump-row">
-            <div class="icon-btn-group">
-              <button type="button" class="icon-btn icon-btn-outline-start" id="markStartBtn" title="この瞬間を開始に" aria-label="この瞬間を開始に">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
-              </button>
-              <button type="button" class="icon-btn icon-btn-fill-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
-              </button>
-            </div>
-            <div class="dur-display">
-              <div class="dur-display-label">切り出し長さ</div>
-              <div class="dur-display-value"><b id="clipDurLabel">0.0秒</b></div>
-            </div>
-            <div class="icon-btn-group">
-              <button type="button" class="icon-btn icon-btn-fill-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
-              </button>
-              <button type="button" class="icon-btn icon-btn-outline-end" id="markEndBtn" title="この瞬間を終了に" aria-label="この瞬間を終了に">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
-              </button>
-            </div>
+          <div class="dur-line">切り出し長さ: <b id="clipDurLabel">0.0秒</b></div>
+
+          <!-- 開始/終了に設定するボタン -->
+          <div class="row mark-row">
+            <button type="button" class="btn green" id="markStartBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              この瞬間を開始に
+            </button>
+            <button type="button" class="btn orange" id="markEndBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              この瞬間を終了に
+            </button>
           </div>
         </div>
 
@@ -464,7 +474,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 13:10</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 22:40</div>
       </div>
     </section>
 
@@ -501,6 +511,7 @@
     <div class="busy-label" id="busyLabel">処理中...</div>
     <div class="busy-sub" id="busySub"></div>
     <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+    <button type="button" class="btn secondary small busy-cancel-btn" id="busyCancelBtn">キャンセル</button>
   </div>
 </div>
 
@@ -561,6 +572,9 @@
       $("busyLabel").textContent = label || "処理中...";
       $("busySub").textContent = sub || "";
       $("progressFill").style.width = "0%";
+      const cancelBtn = $("busyCancelBtn");
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = "キャンセル";
       ov.classList.add("active");
     } else {
       ov.classList.remove("active");
@@ -686,10 +700,10 @@
   const endThumb = $("endThumb");
   const startBadge = $("startBadge");
   const endBadge = $("endBadge");
-  const zoomInBtn = $("zoomInBtn");
-  const zoomOutBtn = $("zoomOutBtn");
+  const zoomControls = $("zoomControls");
   const zoomResetBtn = $("zoomResetBtn");
-  const zoomLabelEl = $("zoomLabel");
+  const panLeftBtn = $("panLeftBtn");
+  const panRightBtn = $("panRightBtn");
   const zoomRangeText = $("zoomRangeText");
   const minimap = $("minimap");
   const minimapWindow = $("minimapWindow");
@@ -736,27 +750,35 @@
     }
   }
 
-  // ズーム倍率・「全体に戻す」リンク・ミニマップ（今どこを見ているか）・表示範囲の時刻を更新
+  // ズーム中かどうかで「全体に戻す・左右に動かす」行とミニマップの表示/非表示を切り替える（案B）
   function updateZoomUI() {
     if (zoomLevel <= 1.02 || state.duration <= 0) {
-      zoomLabelEl.textContent = "全体表示";
-      zoomResetBtn.style.display = "none";
+      zoomControls.style.display = "none";
       minimap.classList.remove("show");
-      zoomRangeText.style.display = "none";
     } else {
-      zoomLabelEl.textContent = zoomLevel.toFixed(1) + "倍";
-      zoomResetBtn.style.display = "inline";
+      zoomControls.style.display = "flex";
       minimap.classList.add("show");
       const total = state.duration || 1;
       const l = (viewStart / total) * 100;
       const w = ((viewEnd - viewStart) / total) * 100;
       minimapWindow.style.left = l + "%";
       minimapWindow.style.width = Math.max(1.5, w) + "%";
-      zoomRangeText.style.display = "block";
       zoomRangeText.textContent = "表示中: " + formatTime(viewStart) + " 〜 " + formatTime(viewEnd) + "（全体 " + formatTime(total) + "）";
     }
-    zoomOutBtn.disabled = zoomLevel <= 1.02;
-    zoomInBtn.disabled = zoomLevel >= MAX_ZOOM;
+  }
+
+  // ズームしたまま表示範囲だけを左右に動かす（片手でパンできるように）
+  function panView(direction) {
+    const total = state.duration || 0;
+    if (total <= 0 || zoomLevel <= 1.02) return;
+    const viewDur = viewEnd - viewStart;
+    let vs = viewStart + viewDur * 0.6 * direction;
+    let ve = vs + viewDur;
+    if (vs < 0) { ve -= vs; vs = 0; }
+    if (ve > total) { vs -= (ve - total); ve = total; }
+    viewStart = Math.max(0, vs);
+    viewEnd = Math.min(total, viewStart + viewDur);
+    renderRangeUI();
   }
 
   function updatePlayhead() {
@@ -803,51 +825,35 @@
     updateRangeBadge();
   }
 
-  // ---- 開始／終了つまみのドラッグ操作 ----
-  // window全体でpointermove/upを監視することで、指がバーから
-  // 少しはみ出しても操作が途切れないようにしている。
-  function bindThumbDrag(thumbEl, kind) {
-    thumbEl.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      try { thumbEl.setPointerCapture(e.pointerId); } catch (err) {}
-      const onMove = (ev) => {
-        const t = percentToTime(getRectPercent(ev.clientX));
-        if (kind === "start") {
-          let v = Math.max(0, t);
-          if (v > state.endTime - 0.1) v = Math.max(0, state.endTime - 0.1);
-          state.startTime = v;
-          previewVideo.currentTime = v;
-        } else {
-          let v = Math.min(state.duration, t);
-          if (v < state.startTime + 0.1) v = Math.min(state.duration, state.startTime + 0.1);
-          state.endTime = v;
-          previewVideo.currentTime = v;
-        }
-        updateLabels();
-      };
-      const onUp = (ev) => {
-        try { thumbEl.releasePointerCapture(e.pointerId); } catch (err) {}
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-      };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
-    });
+  // ---- 開始／終了ハンドルの移動（トリムバー下半分のドラッグから呼ばれる） ----
+  function moveHandle(kind, clientX) {
+    const t = percentToTime(getRectPercent(clientX));
+    if (kind === "start") {
+      let v = Math.max(0, t);
+      if (v > state.endTime - 0.1) v = Math.max(0, state.endTime - 0.1);
+      state.startTime = v;
+      previewVideo.currentTime = v;
+    } else {
+      let v = Math.min(state.duration, t);
+      if (v < state.startTime + 0.1) v = Math.min(state.duration, state.startTime + 0.1);
+      state.endTime = v;
+      previewVideo.currentTime = v;
+    }
+    updateLabels();
   }
-  bindThumbDrag(startThumb, "start");
-  bindThumbDrag(endThumb, "end");
 
   // ---- シークバー本体の操作 ----
-  // 指(ポインター)1本でドラッグ: その位置へ再生位置(白い線)を移動する「再生バーを手で動かす」操作。
+  // 指(ポインター)1本でドラッグ:
+  //   上半分をタッチ → 白い再生位置の線(再生位置)を動かす
+  //   下半分をタッチ → タッチした位置に近い方の開始/終了ハンドルを動かす
+  //   （つまみ自体は表示のみで、狭いつまみを正確につままなくても操作できるようにしている）
   // 指2本(ピンチ): つまんだ位置を軸にズーム／パンする。
-  // つまみのドラッグと同様、window全体でpointermove/upを監視することで、
-  // 指がバーの外に少しはみ出しても操作が途切れないようにしている。
+  // window全体でpointermove/upを監視することで、指がバーの外に少しはみ出しても操作が途切れないようにしている。
   const activeRangePointers = new Map(); // pointerId -> {x, y}
   let pinch = null;         // {startDist, startZoom, anchorTime}
   let seekPointerId = null;
+  let handleDragPointerId = null;
+  let handleDragKind = null; // "start" | "end"
 
   function seekToClientX(clientX) {
     if (state.duration <= 0) return;
@@ -863,6 +869,17 @@
     return { dist: dist || 1, midPercent };
   }
 
+  function isLowerHalf(clientY) {
+    const rect = rangeWrap.getBoundingClientRect();
+    if (!rect.height) return false;
+    return (clientY - rect.top) >= rect.height / 2;
+  }
+
+  function nearestHandleKind(clientX) {
+    const t = percentToTime(getRectPercent(clientX));
+    return Math.abs(t - state.startTime) <= Math.abs(t - state.endTime) ? "start" : "end";
+  }
+
   rangeWrap.addEventListener("pointerdown", (e) => {
     if (state.duration <= 0) return;
     e.preventDefault();
@@ -870,9 +887,16 @@
 
     if (activeRangePointers.size >= 2) {
       seekPointerId = null;
+      handleDragPointerId = null;
       const { dist, midPercent } = pinchFromPoints();
       pinch = { startDist: dist, startZoom: zoomLevel, anchorTime: percentToTime(midPercent) };
+    } else if (isLowerHalf(e.clientY)) {
+      seekPointerId = null;
+      handleDragPointerId = e.pointerId;
+      handleDragKind = nearestHandleKind(e.clientX);
+      moveHandle(handleDragKind, e.clientX);
     } else {
+      handleDragPointerId = null;
       seekPointerId = e.pointerId;
       seekToClientX(e.clientX);
     }
@@ -887,6 +911,7 @@
         const { dist, midPercent } = pinchFromPoints();
         pinch = { startDist: dist, startZoom: zoomLevel, anchorTime: percentToTime(midPercent) };
         seekPointerId = null;
+        handleDragPointerId = null;
       }
       const { dist, midPercent } = pinchFromPoints();
       const newZoom = pinch.startZoom * (dist / pinch.startDist);
@@ -894,6 +919,8 @@
       renderRangeUI();
     } else if (seekPointerId === e.pointerId) {
       seekToClientX(e.clientX);
+    } else if (handleDragPointerId === e.pointerId) {
+      moveHandle(handleDragKind, e.clientX);
     }
   }
 
@@ -901,6 +928,7 @@
     if (!activeRangePointers.has(e.pointerId)) return;
     activeRangePointers.delete(e.pointerId);
     if (seekPointerId === e.pointerId) seekPointerId = null;
+    if (handleDragPointerId === e.pointerId) { handleDragPointerId = null; handleDragKind = null; }
     if (activeRangePointers.size < 2) pinch = null;
   }
 
@@ -908,22 +936,13 @@
   window.addEventListener("pointerup", onRangePointerUp);
   window.addEventListener("pointercancel", onRangePointerUp);
 
-  // ---- ズームボタン（PC操作やピンチが使えない場合の代替） ----
-  const ZOOM_STEP = 1.6;
-  zoomInBtn.addEventListener("click", () => {
-    const center = (viewStart + viewEnd) / 2;
-    setViewFromAnchor(center, 50, zoomLevel * ZOOM_STEP);
-    renderRangeUI();
-  });
-  zoomOutBtn.addEventListener("click", () => {
-    const center = (viewStart + viewEnd) / 2;
-    setViewFromAnchor(center, 50, zoomLevel / ZOOM_STEP);
-    renderRangeUI();
-  });
+  // ---- ズーム中だけ出てくる操作（案B: 通常はピンチのみ。全体に戻す／左右に動かす） ----
   zoomResetBtn.addEventListener("click", () => {
     setViewFromAnchor((state.duration || 0) / 2, 50, 1);
     renderRangeUI();
   });
+  panLeftBtn.addEventListener("click", () => panView(-1));
+  panRightBtn.addEventListener("click", () => panView(1));
 
   $("jumpStartBtn").addEventListener("click", () => {
     previewVideo.currentTime = state.startTime;
@@ -1120,7 +1139,13 @@
     return "";
   }
 
-  function extractClip(start, end, onProgress) {
+  function makeCancelError() {
+    const e = new Error("キャンセルされました");
+    e.cancelled = true;
+    return e;
+  }
+
+  function extractClip(start, end, onProgress, cancelToken) {
     return new Promise((resolve, reject) => {
       const dur = end - start;
       if (dur <= 0) { reject(new Error("終了位置は開始位置より後にしてください")); return; }
@@ -1146,12 +1171,19 @@
           const chunks = [];
           rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
+          let wasCancelled = false;
           const stopped = new Promise((res) => { rec.onstop = res; });
           rec.start(200);
           await ev.play();
 
           const startWall = performance.now();
           const tick = () => {
+            if (cancelToken && cancelToken.cancelled) {
+              wasCancelled = true;
+              ev.pause();
+              rec.stop();
+              return;
+            }
             const elapsed = (performance.now() - startWall) / 1000;
             if (onProgress) onProgress(Math.min(1, elapsed / dur));
             if (ev.currentTime >= end - 0.05 || elapsed >= dur + 1.0 || ev.paused) {
@@ -1164,6 +1196,7 @@
           requestAnimationFrame(tick);
 
           await stopped;
+          if (wasCancelled) { reject(makeCancelError()); return; }
           const ext = mimeType.indexOf("mp4") !== -1 ? "mp4" : "webm";
           resolve({ blob: new Blob(chunks, { type: mimeType || "video/webm" }), ext });
         } catch (err) {
@@ -1180,6 +1213,14 @@
 
       const pollSeekDone = () => {
         if (settled) return;
+        if (cancelToken && cancelToken.cancelled) {
+          settled = true;
+          ev.onseeked = null;
+          clearTimeout(seekTimeout);
+          ev.pause();
+          reject(makeCancelError());
+          return;
+        }
         if (seekIsCloseEnough()) {
           beginCapture();
           return;
@@ -1223,6 +1264,8 @@
     return { method: "download" };
   }
 
+  let activeExtractCancelToken = null;
+
   async function handleSave(suffix) {
     if (!state.currentFile) return;
     if (!FEATURE.mediaRecorder || !FEATURE.captureStream) {
@@ -1237,6 +1280,8 @@
     }
 
     previewVideo.pause();
+    const cancelToken = { cancelled: false };
+    activeExtractCancelToken = cancelToken;
     setBusy(true, "抽出中...", "0% (" + dur.toFixed(1) + "秒分)");
     document.querySelectorAll("#view-clip .btn").forEach((b) => (b.disabled = true));
 
@@ -1244,7 +1289,7 @@
       const { blob, ext } = await extractClip(state.startTime, state.endTime, (p) => {
         setProgress(p);
         $("busySub").textContent = Math.round(p * 100) + "% (" + dur.toFixed(1) + "秒分)";
-      });
+      }, cancelToken);
       const base = sanitizeBase(state.currentFile.name);
       const seq = nextSeq(base);
       const filename = buildFilename(base, seq, suffix, ext);
@@ -1260,13 +1305,27 @@
       ensureTimeVisible(state.startTime);
       updateLabels();
     } catch (err) {
-      console.error(err);
-      toast("保存に失敗しました: " + (err && err.message ? err.message : err));
+      if (err && err.cancelled) {
+        toast("書き出しをキャンセルしました");
+      } else {
+        console.error(err);
+        toast("保存に失敗しました: " + (err && err.message ? err.message : err));
+      }
     } finally {
+      activeExtractCancelToken = null;
       setBusy(false);
       document.querySelectorAll("#view-clip .btn").forEach((b) => (b.disabled = false));
     }
   }
+
+  $("busyCancelBtn").addEventListener("click", () => {
+    if (!activeExtractCancelToken || activeExtractCancelToken.cancelled) return;
+    activeExtractCancelToken.cancelled = true;
+    const cancelBtn = $("busyCancelBtn");
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = "キャンセル中...";
+    $("busySub").textContent = "キャンセルしています…";
+  });
 
   $("saveNormalBtn").addEventListener("click", () => handleSave(""));
   $("saveNiceBtn").addEventListener("click", () => handleSave("Nice"));
