@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-25 23:50 JST
+     最終更新日時: 2026-08-26 08:51 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -82,6 +82,16 @@
      されていない)構造に組み直す処理を追加した。映像・音声のバイト列その
      ものは一切変更しないため、画質・音質の劣化や再エンコードは発生しない。
      組み直しに失敗した場合は自動的に元のファイルのまま保存する。
+
+     2026-08-26 (不具合修正): 「保存先設定」「保存済み一覧」タブに移動して
+     から「クリップ作成」タブに戻ると、プレビュー動画が再生できなくなる
+     不具合を修正。原因は主に「保存済み一覧」タブで、フォルダ内の保存済み
+     クリップ全件ぶんのサムネイル用動画を毎回作成しているのにBlobURLを解放
+     しておらず、タブを開くたびに端末の動画デコーダー資源を消費し続けて
+     いたこと。一覧を作り直す前に古いBlobURLを解放するようにした。
+     あわせて、非表示タブに切り替えたことが原因でプレイヤー側の状態が
+     壊れてしまった場合の保険として、「クリップ作成」タブに戻るたびに
+     再生位置を保ったまま動画の読み込みを行い直す処理を追加した。
      ============================================================ -->
 <style>
   :root {
@@ -501,7 +511,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 23:50</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-26 08:51</div>
       </div>
     </section>
 
@@ -558,6 +568,7 @@
     startTime: 0,
     endTime: 0,
     dirHandle: null,
+    libraryURLs: [],
   };
 
   const FEATURE = {
@@ -671,8 +682,27 @@
       $(btn.dataset.view).classList.add("active");
       if (btn.dataset.view === "view-library") loadLibrary();
       if (btn.dataset.view === "view-settings") refreshFolderStatus();
+      if (btn.dataset.view === "view-clip") reviveClipEditorVideo();
     });
   });
+
+  // 他のタブ(保存先設定・保存済み一覧)に移動して戻ってくると、端末によっては
+  // 非表示になっていた動画プレイヤーが再生できなくなることがあるため
+  // (特に保存済み一覧では複数のサムネイル動画を同時に読み込むため端末の
+  // 動画デコーダーの上限に達しやすい)、クリップ作成タブに戻るたびに
+  // 動画の読み込み状態を確認し、必要であれば読み込み直す。
+  function reviveClipEditorVideo() {
+    if (!state.videoURL) return;
+    const pv = $("previewVideo");
+    if (!pv) return;
+    const savedTime = pv.currentTime || state.startTime || 0;
+    pv.pause();
+    pv.src = state.videoURL;
+    pv.onloadedmetadata = () => {
+      try { pv.currentTime = savedTime; } catch (e) {}
+    };
+    pv.load();
+  }
 
   /* =========================================================
    *  1. 動画選択
@@ -1705,6 +1735,11 @@
    * ======================================================= */
   async function loadLibrary() {
     const grid = $("libraryGrid");
+    // サムネイル表示用に作成したBlobURLは明示的に解放しないと残り続け、
+    // このタブに来るたびに増え続けて端末の動画デコーダーを圧迫する原因に
+    // なるため、一覧を作り直す前に必ず解放する。
+    state.libraryURLs.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    state.libraryURLs = [];
     grid.innerHTML = "";
 
     if (!FEATURE.fsAccess) {
@@ -1743,6 +1778,7 @@
     }
     for (const item of items) {
       const url = URL.createObjectURL(item.file);
+      state.libraryURLs.push(url);
       const card = document.createElement("div");
       card.className = "lib-card";
       card.innerHTML =
