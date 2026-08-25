@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-22 12:45 JST
+     最終更新日時: 2026-08-25 13:10 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -34,6 +34,16 @@
      省スペース化。「再生操作(◀1秒/再生/1秒▶/2倍速)」と「保存(通常保存/
      Nice/Fun/静止画)」をそれぞれ1行4ボタンにまとめ、ズーム関連の余白も
      詰めた。
+
+     2026-08-25 (デザイン刷新): シークバー周りのUIをデザイン案を経て刷新。
+     ・「動画を選び直す」「2倍速」は動画プレビューの右上/右下に重なる
+       アイコンボタンに変更(操作列から独立させ、省スペース化)。
+     ・開始/終了の設定・移動ボタンは、シークバー直下のアイコン列
+       (旗アイコン=この瞬間に設定／矢印アイコン=その位置へ移動)に統合。
+     ・シークバーは、つまみの真上に開始/終了の時刻を示すバッジを表示しつつ、
+       選択範囲を全高の帯で強調する編集ソフト風の太めのバー(48px)に変更。
+       ミニマップはバー下端に統合。バッジと重複するテキストの時刻表示は
+       廃止した。
      ============================================================ -->
 <style>
   :root {
@@ -100,8 +110,6 @@
   .btn.green { background: var(--green); }
   .btn.orange { background: var(--orange); }
   .btn.secondary.active-toggle { background: var(--accent); color: white; border-color: var(--accent); }
-  .btn.mark-start { background: var(--card-2); color: var(--green); border: 1.5px solid var(--green); }
-  .btn.mark-end { background: var(--card-2); color: var(--orange); border: 1.5px solid var(--orange); }
   .btn:disabled { opacity: .4; pointer-events: none; }
   .btn.small { padding: 9px 12px; font-size: 13px; width: auto; }
 
@@ -127,45 +135,71 @@
   }
   .range-badge.show { display: flex; }
 
-  .minimap {
-    position: relative; height: 8px; margin-top: 10px;
-    background: #262b35; border-radius: 4px; overflow: hidden; display: none;
+  /* 動画プレビューに重ねるアイコンボタン（動画を選び直す／2倍速） */
+  .overlay-icon-btn {
+    position: absolute; width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(23,26,33,.88); border: 1px solid var(--border); color: var(--text);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+    top: 8px; right: 8px;
   }
-  .minimap.show { display: block; }
-  .minimap-window {
-    position: absolute; top: 0; bottom: 0;
-    background: var(--accent); opacity: .55; border-radius: 4px;
-  }
+  .overlay-icon-btn-bottom { top: auto; bottom: 8px; }
+  .overlay-icon-btn.active-toggle { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-  .range-wrap {
-    position: relative; height: 42px; margin-top: 10px;
-    touch-action: none; -webkit-user-select: none; user-select: none;
+  /* シークバー: 時刻バッジ + トリムバー */
+  .seek-block { position: relative; margin-top: 22px; height: 76px; }
+  .time-badge {
+    position: absolute; top: 0; transform: translateX(-50%);
+    color: #fff; font-size: 10px; font-weight: 800; padding: 3px 7px; border-radius: 8px;
+    white-space: nowrap; pointer-events: none; z-index: 4; display: none;
   }
-  .range-track-bg {
-    position: absolute; top: 19px; left: 11px; right: 11px; height: 4px;
-    background: #333846; border-radius: 2px;
-    touch-action: none;
+  .time-badge-start { background: var(--green); }
+  .time-badge-end { background: var(--orange); }
+  .time-badge::after {
+    content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 9px;
+    margin-left: -1px;
   }
-  .range-track-fill {
-    position: absolute; top: 19px; height: 4px; background: var(--accent); border-radius: 2px;
+  .time-badge-start::after { background: var(--green); }
+  .time-badge-end::after { background: var(--orange); }
+
+  .trim-bar {
+    position: absolute; left: 0; right: 0; top: 28px; height: 48px;
+    background: var(--card-2); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none;
+  }
+  .trim-selection {
+    position: absolute; top: 0; bottom: 5px;
+    background: linear-gradient(90deg, rgba(47,143,78,.32), rgba(224,86,63,.32));
     pointer-events: none;
   }
-  .range-playhead {
-    position: absolute; top: 4px; width: 2px; height: 34px;
-    background: #fff; opacity: .85; margin-left: -1px; border-radius: 1px;
+  .trim-playhead {
+    position: absolute; top: 0; bottom: 5px; width: 2px; background: #fff; opacity: .9;
+    margin-left: -1px; pointer-events: none; z-index: 2; display: none; border-radius: 1px;
+  }
+  .trim-playhead-tip {
+    position: absolute; top: 0; width: 0; height: 0; margin-left: -4px;
+    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #fff;
     pointer-events: none; z-index: 2; display: none;
   }
-  .range-thumb {
-    position: absolute; top: 9px; width: 24px; height: 24px; border-radius: 50%;
-    margin-left: -12px; border: 3px solid #0f1115; cursor: pointer;
-    touch-action: none; z-index: 3;
+  .trim-handle {
+    position: absolute; top: 0; bottom: 5px; width: 9px; margin-left: -4.5px;
+    border-radius: 4.5px; cursor: pointer; touch-action: none; z-index: 3;
+    display: flex; align-items: center; justify-content: center;
   }
-  .range-thumb-start { background: var(--green); }
-  .range-thumb-end { background: var(--orange); }
+  .trim-handle::after { content: ""; width: 2px; height: 14px; background: rgba(255,255,255,.65); border-radius: 1px; }
+  .trim-handle-start { background: var(--green); }
+  .trim-handle-end { background: var(--orange); }
+  .trim-minimap {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(0,0,0,.45);
+    display: none;
+  }
+  .trim-minimap.show { display: block; }
+  .trim-minimap-window {
+    position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .7; border-radius: 2px;
+  }
 
   .zoom-bar {
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    margin-top: 6px;
+    margin-top: 8px;
   }
   .zoom-btn {
     width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border);
@@ -182,15 +216,20 @@
     text-align: center; font-size: 10.5px; color: var(--text-dim); margin-top: 4px; display: none;
   }
 
-  .time-labels { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--text-dim); }
-  .time-labels b { color: var(--text); font-weight: 700; }
-  .time-labels .start-label b { color: var(--green); }
-  .time-labels .end-label b { color: var(--orange); }
-
-  .dur-badge {
-    text-align: center; font-size: 13px; color: var(--text-dim); margin-top: 6px;
+  /* 開始/終了: 設定・移動アイコン列 */
+  .mark-jump-row { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+  .icon-btn-group { display: flex; gap: 6px; }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
   }
-  .dur-badge b { color: var(--accent); }
+  .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
+  .icon-btn-outline-end { background: var(--card-2); border: 1.5px solid var(--orange); color: var(--orange); }
+  .icon-btn-fill-start { background: var(--green); color: #fff; }
+  .icon-btn-fill-end { background: var(--orange); color: #fff; }
+  .dur-display { text-align: center; }
+  .dur-display-label { font-size: 11px; color: var(--text-dim); }
+  .dur-display-value { font-size: 15px; font-weight: 800; color: var(--accent); margin-top: 2px; }
 
   .empty-hint {
     text-align: center; padding: 40px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.7;
@@ -321,30 +360,37 @@
           <div class="video-wrap">
             <video id="previewVideo" class="preview" playsinline></video>
             <div class="range-badge" id="rangeBadge">✂ ここが切り取り範囲です</div>
+            <button type="button" class="overlay-icon-btn" id="reselectBtn" title="動画を選び直す" aria-label="動画を選び直す">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+            </button>
+            <button type="button" class="overlay-icon-btn overlay-icon-btn-bottom" id="speedBtn" title="2倍速" aria-label="2倍速">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 4 13 12 5 20"/><polyline points="12 4 20 12 12 20"/></svg>
+            </button>
           </div>
 
-          <div class="row save-row" style="margin-top:12px;">
-            <button class="btn secondary" id="stepBackBtn">◀1秒</button>
-            <button class="btn secondary" id="playPauseBtn">▶再生</button>
-            <button class="btn secondary" id="stepFwdBtn">1秒▶</button>
-            <button class="btn secondary" id="speedBtn">2倍速</button>
+          <div class="row" style="margin-top:12px;">
+            <button class="btn secondary" id="stepBackBtn">◀ 1秒</button>
+            <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
+            <button class="btn secondary" id="stepFwdBtn">1秒 ▶</button>
           </div>
 
-          <div class="row" style="margin-top:10px;">
-            <button class="btn mark-start" id="markStartBtn">この瞬間を開始に</button>
-            <button class="btn mark-end" id="markEndBtn">この瞬間を終了に</button>
+          <!-- シークバー: つまみの上の時刻バッジ + 太めのトリムバー -->
+          <div class="seek-block">
+            <div class="time-badge time-badge-start" id="startBadge">0:00.0</div>
+            <div class="time-badge time-badge-end" id="endBadge">0:00.0</div>
+
+            <div class="trim-bar" id="rangeWrap">
+              <div class="trim-selection" id="rangeFill"></div>
+              <div class="trim-playhead" id="rangePlayhead"></div>
+              <div class="trim-playhead-tip" id="rangePlayheadTip"></div>
+              <div class="trim-handle trim-handle-start" id="startThumb"></div>
+              <div class="trim-handle trim-handle-end" id="endThumb"></div>
+              <div class="trim-minimap" id="minimap">
+                <div class="trim-minimap-window" id="minimapWindow"></div>
+              </div>
+            </div>
           </div>
 
-          <div class="minimap" id="minimap">
-            <div class="minimap-window" id="minimapWindow"></div>
-          </div>
-          <div class="range-wrap" id="rangeWrap">
-            <div class="range-track-bg" id="rangeTrackBg"></div>
-            <div class="range-track-fill" id="rangeFill"></div>
-            <div class="range-playhead" id="rangePlayhead"></div>
-            <div class="range-thumb range-thumb-start" id="startThumb"></div>
-            <div class="range-thumb range-thumb-end" id="endThumb"></div>
-          </div>
           <div class="zoom-bar">
             <button type="button" class="zoom-btn" id="zoomOutBtn">－</button>
             <span class="zoom-label" id="zoomLabel">全体表示</span>
@@ -353,16 +399,28 @@
           </div>
           <div class="zoom-range-text" id="zoomRangeText"></div>
 
-          <div class="time-labels">
-            <span class="start-label">開始 <b id="startLabel">0:00.0</b></span>
-            <span class="end-label">終了 <b id="endLabel">0:00.0</b></span>
-          </div>
-          <div class="dur-badge">切り出し長さ: <b id="clipDurLabel">0.0秒</b></div>
-
-          <div class="row" style="margin-top:10px;">
-            <button class="btn secondary small" id="reselectBtn">動画を選び直す</button>
-            <button class="btn secondary small" id="jumpStartBtn">開始位置へ移動</button>
-            <button class="btn secondary small" id="jumpEndBtn">終了位置へ移動</button>
+          <!-- 開始/終了: 設定・移動アイコン列 -->
+          <div class="mark-jump-row">
+            <div class="icon-btn-group">
+              <button type="button" class="icon-btn icon-btn-outline-start" id="markStartBtn" title="この瞬間を開始に" aria-label="この瞬間を開始に">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-fill-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
+              </button>
+            </div>
+            <div class="dur-display">
+              <div class="dur-display-label">切り出し長さ</div>
+              <div class="dur-display-value"><b id="clipDurLabel">0.0秒</b></div>
+            </div>
+            <div class="icon-btn-group">
+              <button type="button" class="icon-btn icon-btn-fill-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-outline-end" id="markEndBtn" title="この瞬間を終了に" aria-label="この瞬間を終了に">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -406,7 +464,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-22 12:45</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 13:10</div>
       </div>
     </section>
 
@@ -621,11 +679,13 @@
    * ======================================================= */
   const previewVideo = $("previewVideo");
   const rangeWrap = $("rangeWrap");
-  const rangeTrackBg = $("rangeTrackBg");
   const rangeFill = $("rangeFill");
   const rangePlayhead = $("rangePlayhead");
+  const rangePlayheadTip = $("rangePlayheadTip");
   const startThumb = $("startThumb");
   const endThumb = $("endThumb");
+  const startBadge = $("startBadge");
+  const endBadge = $("endBadge");
   const zoomInBtn = $("zoomInBtn");
   const zoomOutBtn = $("zoomOutBtn");
   const zoomResetBtn = $("zoomResetBtn");
@@ -700,11 +760,13 @@
   }
 
   function updatePlayhead() {
-    if (state.duration <= 0) { rangePlayhead.style.display = "none"; return; }
+    if (state.duration <= 0) { rangePlayhead.style.display = "none"; rangePlayheadTip.style.display = "none"; return; }
     const p = timeToPercent(previewVideo.currentTime);
-    if (p < 0 || p > 100) { rangePlayhead.style.display = "none"; return; }
+    if (p < 0 || p > 100) { rangePlayhead.style.display = "none"; rangePlayheadTip.style.display = "none"; return; }
     rangePlayhead.style.display = "block";
     rangePlayhead.style.left = p + "%";
+    rangePlayheadTip.style.display = "block";
+    rangePlayheadTip.style.left = p + "%";
   }
 
   function renderRangeUI() {
@@ -715,24 +777,34 @@
     const ce = Math.max(0, Math.min(100, ep));
     rangeFill.style.left = cs + "%";
     rangeFill.style.width = Math.max(0, ce - cs) + "%";
+
+    const startVisible = !(sp < -3 || sp > 103);
+    const endVisible = !(ep < -3 || ep > 103);
+
     startThumb.style.left = sp + "%";
     endThumb.style.left = ep + "%";
-    startThumb.style.display = (sp < -3 || sp > 103) ? "none" : "block";
-    endThumb.style.display = (ep < -3 || ep > 103) ? "none" : "block";
+    startThumb.style.display = startVisible ? "flex" : "none";
+    endThumb.style.display = endVisible ? "flex" : "none";
+
+    startBadge.style.left = sp + "%";
+    endBadge.style.left = ep + "%";
+    startBadge.style.display = startVisible ? "block" : "none";
+    endBadge.style.display = endVisible ? "block" : "none";
+
     updatePlayhead();
     updateZoomUI();
   }
 
   function updateLabels() {
-    $("startLabel").textContent = formatTime(state.startTime);
-    $("endLabel").textContent = formatTime(state.endTime);
+    startBadge.textContent = formatTime(state.startTime);
+    endBadge.textContent = formatTime(state.endTime);
     $("clipDurLabel").textContent = Math.max(0, state.endTime - state.startTime).toFixed(1) + "秒";
     renderRangeUI();
     updateRangeBadge();
   }
 
   // ---- 開始／終了つまみのドラッグ操作 ----
-  // window全体でpointermove/upを監視することで、指が42px高のバーから
+  // window全体でpointermove/upを監視することで、指がバーから
   // 少しはみ出しても操作が途切れないようにしている。
   function bindThumbDrag(thumbEl, kind) {
     thumbEl.addEventListener("pointerdown", (e) => {
@@ -772,9 +844,7 @@
   // 指(ポインター)1本でドラッグ: その位置へ再生位置(白い線)を移動する「再生バーを手で動かす」操作。
   // 指2本(ピンチ): つまんだ位置を軸にズーム／パンする。
   // つまみのドラッグと同様、window全体でpointermove/upを監視することで、
-  // 指がバーの外に少しはみ出しても操作が途切れないようにしている
-  // （前回のバージョンでrangeWrap自体でしかmoveを監視していなかったため、
-  //   指が42px高のバーから少しでも外れると反応しなくなっていた不具合の修正）。
+  // 指がバーの外に少しはみ出しても操作が途切れないようにしている。
   const activeRangePointers = new Map(); // pointerId -> {x, y}
   let pinch = null;         // {startDist, startZoom, anchorTime}
   let seekPointerId = null;
@@ -895,7 +965,7 @@
   let is2xSpeed = false;
 
   function updatePlayPauseLabel() {
-    playPauseBtn.textContent = previewVideo.paused ? "▶再生" : "⏸停止";
+    playPauseBtn.textContent = previewVideo.paused ? "▶ 再生" : "⏸ 停止";
   }
 
   playPauseBtn.addEventListener("click", () => {
@@ -912,8 +982,7 @@
   speedBtn.addEventListener("click", () => {
     is2xSpeed = !is2xSpeed;
     previewVideo.playbackRate = is2xSpeed ? 2 : 1;
-    // ボタンの文言は「2倍速」で固定し、ON/OFFはハイライト(active-toggle)の色だけで示す
-    // （4つ並びの省スペース行に収めるため、文字が伸び縮みしないようにしている）
+    // ON/OFFは動画プレビュー右下の丸いアイコンボタンのハイライト(active-toggle)で示す
     speedBtn.classList.toggle("active-toggle", is2xSpeed);
   });
 
@@ -1103,12 +1172,8 @@
       };
 
       // 頭出し（指定した開始位置への実際のシーク完了）を確認してから抽出を始める。
-      // 以前は「seekedイベントが発火しなければ400ms後に強制開始」という固定時間の
-      // 保険しかなく、長い動画（特にシーク先付近にキーフレームが無い場合）では
-      // 400ms以内にシークが終わらず、まだ古い位置のフレームのまま録画を始めてしまい
-      // 「指定した場所と違うところが保存される」原因になっていた。
-      // これを、実際に ev.currentTime が start に十分近づいたことを確認してから
-      // 開始する方式に変更し、シークに時間がかかる場合は最大約6秒まで待つようにした。
+      // 実際に ev.currentTime が start に十分近づいたことを確認してから開始する方式で、
+      // シークに時間がかかる場合は最大約6秒まで待つ。
       let seekAttempts = 0;
       const MAX_SEEK_ATTEMPTS = 60;
       const seekIsCloseEnough = () => Math.abs(ev.currentTime - start) < 0.35;
