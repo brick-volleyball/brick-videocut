@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-25 23:35 JST
+     最終更新日時: 2026-08-25 23:50 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -69,6 +69,19 @@
      時間の上限は完全に固まった場合の保険として大きく取るようにした（切り出
      し長さ×4+10秒）。あわせて、抽出中に一時的に再生が止まってしまった場合は
      自動的に再生を再開するようにした。
+
+     2026-08-25 (不具合修正): mp4で保存した動画が、アプリによって長さの
+     認識が異なる(ファイルマネージャー＋では正しい長さに見えるが、
+     MX Playerでは数秒に、Threadsにアップロードすると数秒に切られる)不具合
+     を修正。原因は、動画抜き出しに使っているブラウザの録画機能が出力する
+     mp4が「フラグメント化」という配信向けの構造になっており、映像・音声
+     データ自体は最後まで正しく入っているものの、内部の管理情報(サンプル
+     一覧表)が複数の断片に分かれて入っているため、この構造を理解できない
+     一部のアプリ・アップロード先が最初の断片だけを動画の全部だと誤認識
+     していたこと。mp4で保存する際、抜き出し直後に内部構造を通常の(断片化
+     されていない)構造に組み直す処理を追加した。映像・音声のバイト列その
+     ものは一切変更しないため、画質・音質の劣化や再エンコードは発生しない。
+     組み直しに失敗した場合は自動的に元のファイルのまま保存する。
      ============================================================ -->
 <style>
   :root {
@@ -488,7 +501,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 23:35</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 23:50</div>
       </div>
     </section>
 
@@ -1153,6 +1166,269 @@
     return "";
   }
 
+  /*
+   * MediaRecorderがMP4で出力する動画は「フラグメント化(fragmented)」された構造になっており、
+   * 中身の映像・音声データ自体は正しく全部入っているものの、通常のMP4が持つはずの「サンプル一覧
+   * 表」がファイル冒頭にまとまって入っておらず、moof/mdatという断片の繰り返しに分散している。
+   * これを理解できないアプリ(MXPlayerなど)やアップロード先(Threadsなど)は、最初の断片(数秒分)
+   * だけを動画の全部だと誤認識し、そこで切れてしまう。
+   * この関数は、抽出直後のファイルを読み直して「断片化されていない」通常のMP4構造に組み直す
+   * (映像・音声のバイト列そのものは一切変更せず、コンテナのメタデータだけを作り直すため、
+   * 画質・音質の劣化や再エンコードは発生しない)。想定外の構造だった場合は null を返し、
+   * 呼び出し側は元のファイルをそのまま使う。
+   */
+  function remuxFragmentedMp4(arrayBuffer) {
+    try {
+      const dv = new DataView(arrayBuffer);
+      const bytes = new Uint8Array(arrayBuffer);
+      const len = arrayBuffer.byteLength;
+
+      function readBoxHeader(off) {
+        const size32 = dv.getUint32(off);
+        const type = String.fromCharCode(bytes[off + 4], bytes[off + 5], bytes[off + 6], bytes[off + 7]);
+        let header = 8, size;
+        if (size32 === 1) {
+          const hi = dv.getUint32(off + 8), lo = dv.getUint32(off + 12);
+          size = hi * 4294967296 + lo;
+          header = 16;
+        } else if (size32 === 0) {
+          size = len - off;
+        } else {
+          size = size32;
+        }
+        return { type, size, header };
+      }
+      function children(start, end) {
+        const out = [];
+        let off = start;
+        while (off + 8 <= end) {
+          const b = readBoxHeader(off);
+          if (b.size < b.header) break;
+          out.push({ type: b.type, off, size: b.size, header: b.header });
+          off += b.size;
+        }
+        return out;
+      }
+
+      const top = children(0, len);
+      const ftyp = top.find((b) => b.type === "ftyp");
+      const moov = top.find((b) => b.type === "moov");
+      const moofs = top.filter((b) => b.type === "moof");
+      const mdats = top.filter((b) => b.type === "mdat");
+      if (!ftyp || !moov || moofs.length === 0 || mdats.length === 0) return null;
+
+      const moovChildren = children(moov.off + moov.header, moov.off + moov.size);
+      const mvhd = moovChildren.find((b) => b.type === "mvhd");
+      if (!mvhd) return null;
+      const mvhdDataOff = mvhd.off + mvhd.header;
+      const mvhdVersion = bytes[mvhdDataOff];
+      const movieTimescale = dv.getUint32(mvhdDataOff + 4 + (mvhdVersion === 1 ? 16 : 8));
+
+      const traks = moovChildren.filter((b) => b.type === "trak");
+      if (traks.length === 0) return null;
+
+      const trackInfo = new Map();
+      traks.forEach((trak) => {
+        const tc = children(trak.off + trak.header, trak.off + trak.size);
+        const tkhd = tc.find((b) => b.type === "tkhd");
+        const mdia = tc.find((b) => b.type === "mdia");
+        if (!tkhd || !mdia) return;
+        const tkhdDataOff = tkhd.off + tkhd.header;
+        const tkhdVersion = bytes[tkhdDataOff];
+        const trackId = dv.getUint32(tkhdDataOff + 4 + (tkhdVersion === 1 ? 16 : 8));
+
+        const mc = children(mdia.off + mdia.header, mdia.off + mdia.size);
+        const mdhd = mc.find((b) => b.type === "mdhd");
+        const hdlr = mc.find((b) => b.type === "hdlr");
+        const minf = mc.find((b) => b.type === "minf");
+        if (!mdhd || !hdlr || !minf) return;
+        const mdhdDataOff = mdhd.off + mdhd.header;
+        const mdhdVersion = bytes[mdhdDataOff];
+        const mediaTimescale = dv.getUint32(mdhdDataOff + 4 + (mdhdVersion === 1 ? 16 : 8));
+
+        const minfChildren = children(minf.off + minf.header, minf.off + minf.size);
+        const stbl = minfChildren.find((b) => b.type === "stbl");
+        if (!stbl) return;
+        const stblChildren = children(stbl.off + stbl.header, stbl.off + stbl.size);
+        const stsd = stblChildren.find((b) => b.type === "stsd");
+        if (!stsd) return;
+        const otherMinf = minfChildren.filter((b) => b.type !== "stbl");
+
+        trackInfo.set(trackId, {
+          tkhd, tkhdVersion, mdhd, mdhdVersion, hdlr, otherMinf, stsd,
+          mediaTimescale, samples: [],
+        });
+      });
+      if (trackInfo.size === 0) return null;
+
+      // moof/traf/trun をすべて走査し、各サンプルの(サイズ・長さ・ファイル上の位置)を集める
+      moofs.forEach((moof) => {
+        const mc = children(moof.off + moof.header, moof.off + moof.size);
+        mc.filter((b) => b.type === "traf").forEach((traf) => {
+          const tc = children(traf.off + traf.header, traf.off + traf.size);
+          const tfhd = tc.find((b) => b.type === "tfhd");
+          const trun = tc.find((b) => b.type === "trun");
+          if (!tfhd || !trun) return;
+
+          const tfhdDataOff = tfhd.off + tfhd.header;
+          const tfhdFlags = dv.getUint32(tfhdDataOff) & 0x00ffffff;
+          let p = tfhdDataOff + 4;
+          const trackId = dv.getUint32(p); p += 4;
+          let baseDataOffset = null;
+          if (tfhdFlags & 0x000001) { const hi = dv.getUint32(p), lo = dv.getUint32(p + 4); baseDataOffset = hi * 4294967296 + lo; p += 8; }
+          if (tfhdFlags & 0x000002) { p += 4; }
+          let defaultSampleDuration = null;
+          if (tfhdFlags & 0x000008) { defaultSampleDuration = dv.getUint32(p); p += 4; }
+          let defaultSampleSize = null;
+          if (tfhdFlags & 0x000010) { defaultSampleSize = dv.getUint32(p); p += 4; }
+          if (tfhdFlags & 0x000020) { p += 4; }
+
+          const info = trackInfo.get(trackId);
+          if (!info) return;
+
+          const trunDataOff = trun.off + trun.header;
+          const trunFlags = dv.getUint32(trunDataOff) & 0x00ffffff;
+          let q = trunDataOff + 4;
+          const sampleCount = dv.getUint32(q); q += 4;
+          let dataOffset = 0;
+          if (trunFlags & 0x000001) { dataOffset = dv.getInt32(q); q += 4; }
+          if (trunFlags & 0x000004) { q += 4; }
+          const hasDur = !!(trunFlags & 0x000100);
+          const hasSize = !!(trunFlags & 0x000200);
+          const hasFlags = !!(trunFlags & 0x000400);
+          const hasCto = !!(trunFlags & 0x000800);
+
+          const base = (baseDataOffset != null ? baseDataOffset : moof.off) + dataOffset;
+          let curOffset = base;
+          for (let i = 0; i < sampleCount; i++) {
+            let dur = defaultSampleDuration, size = defaultSampleSize;
+            if (hasDur) { dur = dv.getUint32(q); q += 4; }
+            if (hasSize) { size = dv.getUint32(q); q += 4; }
+            if (hasFlags) { q += 4; }
+            if (hasCto) { q += 4; }
+            info.samples.push({ size, dur, offset: curOffset });
+            curOffset += size;
+          }
+        });
+      });
+      for (const info of trackInfo.values()) {
+        if (info.samples.length === 0) return null; // 想定外の構造。安全のため諦める
+      }
+
+      // mdatのデータ位置マッピング: 元ファイル上の絶対位置 -> 結合後の新しいmdat内での位置
+      const mdatSegments = mdats.map((m) => ({ start: m.off + m.header, end: m.off + m.size }));
+      function remapOffset(origOffset) {
+        let cum = 0;
+        for (const seg of mdatSegments) {
+          if (origOffset >= seg.start && origOffset < seg.end) return cum + (origOffset - seg.start);
+          cum += seg.end - seg.start;
+        }
+        return 0;
+      }
+
+      let overallDurationSec = 0;
+      trackInfo.forEach((info) => {
+        let totalTicks = 0;
+        info.samples.forEach((s) => { totalTicks += s.dur; });
+        info.totalDurationTicks = totalTicks;
+        info.totalDurationSec = totalTicks / info.mediaTimescale;
+        overallDurationSec = Math.max(overallDurationSec, info.totalDurationSec);
+      });
+      const movieDurationTicks = Math.round(overallDurationSec * movieTimescale);
+
+      function u32be(n) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n >>> 0); return b; }
+      function concatBytes(arrs) {
+        let total = 0; arrs.forEach((a) => { total += a.length; });
+        const out = new Uint8Array(total);
+        let off = 0; arrs.forEach((a) => { out.set(a, off); off += a.length; });
+        return out;
+      }
+      function makeBox(type, payload) {
+        const typeBytes = new Uint8Array([type.charCodeAt(0), type.charCodeAt(1), type.charCodeAt(2), type.charCodeAt(3)]);
+        return concatBytes([u32be(8 + payload.length), typeBytes, payload]);
+      }
+      function sliceBytes(off, size) { return bytes.slice(off, off + size); }
+      function patchDurationField(boxBytes, version, fieldOffsetInBox, value) {
+        const out = boxBytes.slice();
+        const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+        if (version === 1) {
+          view.setUint32(fieldOffsetInBox, Math.floor(value / 4294967296));
+          view.setUint32(fieldOffsetInBox + 4, value >>> 0);
+        } else {
+          view.setUint32(fieldOffsetInBox, value >>> 0);
+        }
+        return out;
+      }
+
+      const mvhdDurOffInBox = mvhd.header + 4 + (mvhdVersion === 1 ? 16 : 8) + 4;
+      const mvhdBytes = patchDurationField(sliceBytes(mvhd.off, mvhd.size), mvhdVersion, mvhdDurOffInBox, movieDurationTicks);
+
+      function buildStts(samples) {
+        const runs = [];
+        samples.forEach((s) => {
+          if (runs.length && runs[runs.length - 1][1] === s.dur) runs[runs.length - 1][0] += 1;
+          else runs.push([1, s.dur]);
+        });
+        const parts = [u32be(0), u32be(runs.length)];
+        runs.forEach((r) => { parts.push(u32be(r[0]), u32be(r[1])); });
+        return makeBox("stts", concatBytes(parts));
+      }
+      function buildStsz(samples) {
+        const parts = [u32be(0), u32be(0), u32be(samples.length)];
+        samples.forEach((s) => parts.push(u32be(s.size)));
+        return makeBox("stsz", concatBytes(parts));
+      }
+      function buildStsc() {
+        return makeBox("stsc", concatBytes([u32be(0), u32be(1), u32be(1), u32be(1), u32be(1)]));
+      }
+      function buildStco(samples, mdatPayloadStart) {
+        const parts = [u32be(0), u32be(samples.length)];
+        samples.forEach((s) => parts.push(u32be(mdatPayloadStart + remapOffset(s.offset))));
+        return makeBox("stco", concatBytes(parts));
+      }
+
+      function buildTrak(info, mdatPayloadStartPlaceholder) {
+        const tkhdDurOffInBox = info.tkhd.header + 4 + (info.tkhdVersion === 1 ? 24 : 16);
+        const trackDurTicksMovieTs = Math.round(info.totalDurationSec * movieTimescale);
+        const tkhdBytes = patchDurationField(sliceBytes(info.tkhd.off, info.tkhd.size), info.tkhdVersion, tkhdDurOffInBox, trackDurTicksMovieTs);
+
+        const mdhdDurOffInBox = info.mdhd.header + 4 + (info.mdhdVersion === 1 ? 20 : 12);
+        const mdhdBytes = patchDurationField(sliceBytes(info.mdhd.off, info.mdhd.size), info.mdhdVersion, mdhdDurOffInBox, info.totalDurationTicks);
+
+        const hdlrBytes = sliceBytes(info.hdlr.off, info.hdlr.size);
+        const stsdBytes = sliceBytes(info.stsd.off, info.stsd.size);
+        const otherMinfBytes = concatBytes(info.otherMinf.map((b) => sliceBytes(b.off, b.size)));
+
+        const newStbl = makeBox("stbl", concatBytes([
+          stsdBytes, buildStts(info.samples), buildStsc(), buildStsz(info.samples), buildStco(info.samples, mdatPayloadStartPlaceholder),
+        ]));
+        const newMinf = makeBox("minf", concatBytes([otherMinfBytes, newStbl]));
+        const newMdia = makeBox("mdia", concatBytes([mdhdBytes, hdlrBytes, newMinf]));
+        return makeBox("trak", concatBytes([tkhdBytes, newMdia]));
+      }
+
+      function buildMoov(mdatPayloadStartPlaceholder) {
+        const trakBoxes = [];
+        trackInfo.forEach((info) => { trakBoxes.push(buildTrak(info, mdatPayloadStartPlaceholder)); });
+        return makeBox("moov", concatBytes([mvhdBytes].concat(trakBoxes)));
+      }
+
+      const ftypBytes = sliceBytes(ftyp.off, ftyp.size);
+      const moovPass1 = buildMoov(0);
+      const newMdatPayloadStart = ftypBytes.length + moovPass1.length + 8;
+      const moovFinal = buildMoov(newMdatPayloadStart);
+      if (moovFinal.length !== moovPass1.length) return null; // 想定外。安全のため諦める
+
+      const mdatPayload = concatBytes(mdatSegments.map((seg) => bytes.slice(seg.start, seg.end)));
+      const newMdat = makeBox("mdat", mdatPayload);
+
+      return concatBytes([ftypBytes, moovFinal, newMdat]).buffer;
+    } catch (err) {
+      console.error("remuxFragmentedMp4 failed", err);
+      return null;
+    }
+  }
+
   function makeCancelError() {
     const e = new Error("キャンセルされました");
     e.cancelled = true;
@@ -1227,7 +1503,31 @@
           await stopped;
           if (wasCancelled) { reject(makeCancelError()); return; }
           const ext = mimeType.indexOf("mp4") !== -1 ? "mp4" : "webm";
-          resolve({ blob: new Blob(chunks, { type: mimeType || "video/webm" }), ext });
+          let finalBlob = new Blob(chunks, { type: mimeType || "video/webm" });
+
+          // MediaRecorderが出力するmp4はフラグメント形式（ストリーミング向け）で、
+          // 動画/音声データ自体は正しく完全でも、内部の管理情報（長さなど）が
+          // プレースホルダのままのアプリが多い。一部のプレーヤー（MX Playerなど）や
+          // Threadsのようなアップロード先はこの形式のフラグメントを最初の一つしか
+          // 認識せず、実際には最後まで記録できているのに数秒で切れて見えてしまう。
+          // そこで書き出し後、mp4の場合は内部構造を通常の（フラグメントされていない）
+          // 形式に組み直す。映像・音声データ自体の再エンコードは行わないため、
+          // 画質・音質の劣化は発生しない。失敗した場合は元のファイルをそのまま使う。
+          if (ext === "mp4") {
+            if (cancelToken && cancelToken.cancelled) { reject(makeCancelError()); return; }
+            if (onProgress) onProgress(1);
+            try {
+              const rawBuffer = await finalBlob.arrayBuffer();
+              const fixedBuffer = remuxFragmentedMp4(rawBuffer);
+              if (fixedBuffer) {
+                finalBlob = new Blob([fixedBuffer], { type: mimeType || "video/mp4" });
+              }
+            } catch (remuxErr) {
+              console.error("mp4 remux failed, falling back to original file", remuxErr);
+            }
+          }
+
+          resolve({ blob: finalBlob, ext });
         } catch (err) {
           reject(err);
         }
