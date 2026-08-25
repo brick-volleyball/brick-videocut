@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-25 22:40 JST
+     最終更新日時: 2026-08-25 23:05 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -56,6 +56,10 @@
        つままなくても操作できるようにするため)。
      ・「開始/終了位置へ移動」ボタンは◀1秒/再生/1秒▶の行の両端に統合。
        「この瞬間を開始/終了に」ボタンはその下の専用の行に変更。
+
+     2026-08-25 (微調整): ◀1秒/再生/1秒▶行と「この瞬間を開始/終了に」行の
+     文字が2行に折り返されて見づらかったため、文字サイズを縮小し折り返さない
+     ようにした。
      ============================================================ -->
 <style>
   :root {
@@ -226,8 +230,8 @@
   .zoom-range-text { text-align: center; font-size: 10.5px; color: var(--text-dim); }
 
   /* 1秒送り/戻し・再生の行に統合した「開始/終了位置へ移動」アイコン */
-  .step-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
-  .step-row .btn { flex: 1 1 auto; }
+  .step-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+  .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 12px 2px; white-space: nowrap; }
   .icon-btn {
     width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
     display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
@@ -239,6 +243,7 @@
   .dur-line { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 12px; }
   .dur-line b { color: var(--accent); font-weight: 800; font-size: 13px; }
   .mark-row { margin-top: 8px; }
+  .mark-row .btn { font-size: 13px; padding: 12px 6px; white-space: nowrap; gap: 5px; }
 
   .empty-hint {
     text-align: center; padding: 40px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.7;
@@ -474,7 +479,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 22:40</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-25 23:05</div>
       </div>
     </section>
 
