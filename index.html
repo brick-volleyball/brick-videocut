@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 17:31 JST
+     最終更新日時: 2026-09-01 18:41 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -276,6 +276,32 @@
        クエリを追加し、通常表示時のみヘッダー・タブバーを縮小表示するように
        した（全画面表示時のレイアウトには影響なし。全画面時はヘッダー・
        タブバー自体がそもそも非表示のため）。
+
+     2026-09-01 (不具合修正): 通常表示でA-Bループ行が表示されてしまう不具合を
+     修正（v7の直後）。
+     ・ユーザーから「この瞬間を〜のボタンの行とA-Bループも含んだボタンの行は
+       全画面モードのオンオフで表示非表示を切り替えてほしい」との指摘。
+       実機スクリーンショットで、通常表示（全画面オフ）なのに新設した
+       「開始位置/終了位置/A-Bループ/解除」の4ボタン行（#fsAbRow）が
+       「この瞬間を開始/終了に」行の下にそのまま表示されてしまっていた。
+     ・原因はCSSの詳細度（specificity）の問題。#fsAbRowを通常表示で隠すための
+       `.fs-only { display: none; }` と、行の共通クラス `.row { display: flex; }`
+       がどちらも単一クラスセレクタで詳細度が同じだったため、CSS内で後に
+       書かれていた`.row`の指定が後勝ちで`.fs-only`を打ち消してしまっていた。
+     ・`.fs-only { display: none !important; }` / `#fsControlPanel .fs-only
+       { display: flex !important; }` とし、!importantで明示的に優先順位を
+       固定することで、通常表示では確実に非表示、全画面表示中は確実に表示
+       されるようにした。
+     ・あわせて、「この瞬間を開始/終了に」行（.mark-row）についても、
+       全画面中に#fsAbRowの同等ボタンへ役割が引き継がれるため
+       `.fs-mode .mark-row { display: none; }` を追加し、全画面表示中は
+       明示的に非表示にした（従来は動画のfixedオーバーレイに隠れて見た目上は
+       隠れていたが、DOM上は非表示になっていなかったため、今回明示化した）。
+       これにより「この瞬間を〜」行は通常表示のみ、#fsAbRow（開始位置/終了位置/
+       A-Bループ/解除）は全画面表示のみに、それぞれ確実に表示が切り替わる
+       ようになった。
+     ・構文チェック・id参照整合性を再確認済み（DOM再配置ロジック自体は
+       変更していないため、v7で実施したjsdomテストは有効）。
      ============================================================ -->
 <style>
   :root {
@@ -353,8 +379,10 @@
   .btn.outline.outline-accent { border-color: var(--accent); color: var(--accent); }
   .btn.outline.active-toggle { background: rgba(47,111,237,.28); border-color: var(--accent); color: #fff; }
 
-  /* 全画面表示（#fsControlPanel）でのみ表示する要素。通常表示では常に非表示 */
-  .fs-only { display: none; }
+  /* 全画面表示（#fsControlPanel）でのみ表示する要素。通常表示では常に非表示。
+     .row（display:flexをつける、後方で定義される汎用クラス）等、詳細度が同じ
+     他のクラスに後勝ちで打ち消されないよう !important を付けている */
+  .fs-only { display: none !important; }
 
   .row { display: flex; gap: 10px; }
   .row > * { flex: 1; }
@@ -479,8 +507,8 @@
   #fsControlPanel .time-badge { display: none; } /* 帯を薄い線に簡略化する分、数値バッジは省略 */
 
   /* 全画面表示（#fsControlPanel）でのみ「開始位置/終了位置/A-Bループ/解除」の
-     4ボタン行を表示する */
-  #fsControlPanel .fs-only { display: flex; }
+     4ボタン行を表示する（.fs-onlyの!importantをID詳細度で上書き） */
+  #fsControlPanel .fs-only { display: flex !important; }
 
   /* 全画面表示中のボタン・トリムバー類を半透明化し、動画がうっすら透けて
      見えるようにする（IDセレクタでの上書きなので、通常時の見た目には影響しない）。
@@ -615,6 +643,11 @@
   .dur-line b { color: var(--accent); font-weight: 800; font-size: 13px; }
   .mark-row { margin-top: 8px; }
   .mark-row .btn { font-size: 13px; padding: 12px 6px; white-space: nowrap; gap: 5px; }
+  /* 「この瞬間を開始/終了に」行は通常表示専用。全画面表示中は同じ役割の
+     #fsAbRow（開始位置/終了位置ボタン）に置き換わるため明示的に非表示にする
+     （元々videoWrapのfixedオーバーレイに隠れて見えなくなってはいたが、
+     ここでも明示しておくことでどちらのモードかが常に一意に決まるようにする） */
+  .fs-mode .mark-row { display: none; }
 
   .empty-hint {
     text-align: center; padding: 40px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.7;
