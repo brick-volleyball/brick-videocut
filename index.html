@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 19:07 JST
+     最終更新日時: 2026-09-02 06:12 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -355,6 +355,48 @@
        テストはそのまま有効。構文チェック・id参照整合性を再確認済み。実機では
        ブラウザ・OSごとに対応状況が異なりうるため（特にiOS Safariでは非対応）、
        Android実機での挙動を次回確認予定。
+
+     2026-09-02 (改善): 全画面表示のレイアウトを再編成（v10）。
+     ・「A-BループのON/OFFと解除ボタンが同じ動きになるので解除ボタンは不要。
+       代わりに何を割り当てるか相談したい」との相談を受け、選択肢（2倍速ボタン／
+       他の新機能案）を提示したところ、「解除ボタンは廃止した上で、レイアウトも
+       次のように見直してほしい」とのフィードバックがあった：
+       (1) 開始位置/終了位置/A-Bループを画面左上、「切り取り範囲です」バッジの
+       少し下に、ボタン横幅を小さくして配置。
+       (2) 再生ボタン・進む/戻るボタン等の行をシークバーと保存ボタン行の間に配置し、
+       各ボタンをもう少し大きめにする。2倍速ボタンを右上から再生ボタン行の右端へ
+       （他のボタン配置は変えず独立して追加）。
+     ・解除ボタン（abClearBtn）を廃止。A-Bループボタン自体がトグル（ONの状態で
+       もう一度押すとOFFになる）であるため機能が重複していたための整理。
+     ・(1) 開始位置/終了位置/A-Bループの行（#fsAbRow、3ボタンに削減）を、
+       これまでの下部パネル（#fsControlPanel）から切り離し、videoWrap直下へ
+       独立して配置する方式に変更。CSSは `.fs-mode #fsAbRow` を起点にした
+       絶対配置（range-badgeの直下、左上）にし、ボタンもflex:0の小さめのピルに
+       した。#fsControlPanelの外に出たことで、以前 `#fsControlPanel .btn.outline`
+       等のIDセレクタで行っていた半透明化・A-Bループのハイライトの上書きも、
+       同じ考え方のまま `.fs-mode #fsAbRow` 側に定義し直した。
+     ・(2) enterFsOverlay()の下部パネルへの追加順序を、従来の
+       stepRow→seekBlock→saveCardから、seekBlock→stepRow→saveCardに変更し、
+       再生ボタン等の行がシークバーと保存カードの間に来るようにした。
+       FS_MOVABLES配列自体（ホーム位置記録・復元用の並び）は実際のDOM上の並びと
+       一致させる必要があるため変更していない（並び順の意味が「復元用の記録順」と
+       「表示順」で別になった点に注意——表示順はenterFsOverlay内のappendChild呼び出し
+       順で個別に制御している）。
+     ・再生ボタン行のボタンサイズ・アイコンボタンサイズ（32px→36px）を一段階
+       大きくした（v8でコンパクト化しすぎていたための調整）。
+     ・2倍速ボタンは、動画右上のアイコン（speedBtn）を全画面表示中は非表示にし、
+       代わりに再生ボタン行の右端に新設した`fsSpeedBtn`（speedBtnへのクリック
+       委譲）で操作する方式にした。ON/OFFのハイライト（active-toggle）は
+       speedBtnのクリックハンドラ内でfsSpeedBtn側にも同期するようにしている。
+       右上に残る「動画を選び直す」アイコンは、空いた位置（speedBtnがあった
+       right:48px）へ詰めて配置し直した。
+     ・下部パネルの構成要素が変わった（fsAbRowが抜けた）ため、jsdomによる
+       DOM再配置round-tripテストを書き直して再実行し、全画面のON/OFFを複数回
+       繰り返しても各要素が元の親・直後の兄弟要素へ正確に戻ること、fsAbRowが
+       videoWrap直下・他3つがfsPanel内（seekBlock→stepRow→saveCardの順）に
+       正しく分かれて配置されることを確認済み。構文チェック・id参照整合性も
+       再確認済み。実機での見え方（特に左上のfsAbRowの視認性・大きくした
+       ボタンのバランス）は次回確認予定。
      ============================================================ -->
 <style>
   :root {
@@ -521,22 +563,49 @@
   .fs-mode .range-badge {
     top: calc(10px + env(safe-area-inset-top));
   }
-  /* 動画に重ねるアイコン3つは、全画面時はすべて右上の1列にまとめる。
+  /* 動画に重ねるアイコンは、全画面時は右上の1列にまとめる。
      左上の range-badge（切り取り範囲表示）や下端のコントロールパネルと
      絶対にぶつからない位置（旧v2で全画面終了アイコンをrange-badgeと同じ
      左上に置いてしまい重なっていた不具合の修正）。全画面終了アイコンを
-     画面端に一番近い位置に置く。 */
+     画面端に一番近い位置に置く。
+     2倍速ボタン（speedBtn）は、全画面表示中は右上ではなく再生ボタン行の
+     右端（fsSpeedBtn、既存speedBtnへのクリック委譲）に独立して配置し直す
+     ため、右上からは非表示にする。空いた分、動画を選び直すアイコンを
+     speedBtnのあった位置まで詰める。 */
   .fs-mode #fullscreenBtn {
     top: calc(8px + env(safe-area-inset-top)); bottom: auto;
     right: calc(8px + env(safe-area-inset-right)); left: auto;
   }
-  .fs-mode #speedBtn {
-    top: calc(8px + env(safe-area-inset-top)); bottom: auto;
-    right: calc(48px + env(safe-area-inset-right));
-  }
+  .fs-mode #speedBtn { display: none; }
   .fs-mode #reselectBtn {
     top: calc(8px + env(safe-area-inset-top));
-    right: calc(88px + env(safe-area-inset-right));
+    right: calc(48px + env(safe-area-inset-right));
+  }
+
+  /* 開始位置/終了位置/A-Bループの行は、下部パネルではなく左上（切り取り範囲
+     バッジのすぐ下）に独立して配置する。解除ボタンは廃止（A-Bループボタン
+     自体がトグルのため機能が重複していた）。横幅を抑えた小さめのピルボタンに
+     して、動画を隠しすぎないようにしている。
+     #fsControlPanel の外（videoWrap直下）に配置されるため、他の全画面用CSSと
+     違い #fsControlPanel を起点にしたIDセレクタではなく .fs-mode #fsAbRow を
+     起点にしている。.fs-only の display:none!important をID詳細度で上書きする
+     必要があるため、こちらも !important を付けている（v7の.fs-only修正と同じ
+     考え方）。 */
+  .fs-mode #fsAbRow {
+    display: flex !important;
+    position: absolute;
+    top: calc(46px + env(safe-area-inset-top));
+    left: calc(10px + env(safe-area-inset-left));
+    right: auto; width: auto;
+    gap: 6px; margin: 0;
+  }
+  .fs-mode #fsAbRow .btn {
+    flex: 0 0 auto; width: auto; padding: 6px 10px; font-size: 10.5px;
+    background: rgba(10,12,16,.5); box-shadow: 0 1px 6px rgba(0,0,0,.55);
+  }
+  .fs-mode #fsAbRow .btn.outline.active-toggle {
+    background: rgba(47,111,237,.6); border-color: var(--accent); color: #fff;
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.35) inset, 0 1px 6px rgba(0,0,0,.55);
   }
 
   /* 全画面表示中、動画の下端に「重ねる」コントロール一式のパネル。
@@ -553,15 +622,16 @@
     border-radius: 16px 16px 0 0;
   }
   /* ボタン類をできるだけ下に寄せてコンパクトにまとめる（各要素間の余白を
-     通常表示よりさらに詰め、動画がより広く見えるようにする） */
+     通常表示よりさらに詰め、動画がより広く見えるようにする）。
+     表示順（上から）: シークバー → 再生/送り戻し行 → 保存カード
+     （enterFsOverlay()のappendChild順を参照。以前はstepRowが最初だったが、
+     「シークバーと保存ボタン行の間に配置してほしい」との要望でこの順に変更） */
   #fsControlPanel .card {
-    background: transparent; border: none; padding: 0; margin: 6px 0 0;
+    background: transparent; border: none; padding: 0; margin: 10px 0 0;
   }
-  #fsControlPanel .card:first-child { margin-top: 0; }
   #fsControlPanel .card h2 { display: none; } /* 「保存」ラベルは全画面時は不要 */
-  #fsControlPanel .step-row { margin-top: 0; }
-  #fsControlPanel .seek-block { margin-top: 6px; height: 14px; }
-  #fsControlPanel .ab-row { margin-top: 6px; }
+  #fsControlPanel .seek-block { margin-top: 0; height: 14px; }
+  #fsControlPanel .step-row { margin-top: 10px; }
   #fsControlPanel .time-badge { display: none; } /* 帯を薄い線に簡略化する分、数値バッジは省略 */
 
   /* 全画面表示（#fsControlPanel）でのみ「開始位置/終了位置/A-Bループ/解除」の
@@ -586,24 +656,19 @@
   #fsControlPanel .icon-btn-outline-end { background: rgba(20,22,28,.3); }
   #fsControlPanel .btn.green { background: rgba(47,143,78,.55); }
   #fsControlPanel .btn.orange { background: rgba(224,86,63,.55); }
-  #fsControlPanel .btn.outline { background: rgba(10,12,16,.35); }
   #fsControlPanel .btn:not(.secondary):not(.green):not(.orange):not(.outline) { background: rgba(47,111,237,.55); }
   #fsControlPanel .zoom-reset-pill { background: rgba(47,111,237,.22); }
   #fsControlPanel .warn-box { background: rgba(217,165,58,.16); }
+  /* 開始位置/終了位置/A-Bループ（.btn.outline系）は今回から#fsControlPanelの外
+     （左上、.fs-mode #fsAbRow）に配置されるため、半透明化やA-Bループの
+     ハイライトの上書きも.fs-mode #fsAbRow側に定義している（上のブロック参照） */
 
-  /* A-Bループのオン/オフを分かりやすくする。
-     従来は #fsControlPanel .btn.outline（ID+2クラス）の方が .btn.outline.active-toggle
-     （クラスのみ・3クラス）より詳細度が高く、ONにしても背景色の変化が上書きされて
-     消えてしまっていた（オン/オフが分かりづらい原因）。IDセレクタ側でも
-     active-toggle専用の上書きを用意し、確実にハイライトされるようにした
-     （ボタンのテキスト自体もJS側でON/OFFで切り替えている＝setAbLoop参照） */
-  #fsControlPanel .btn.outline.active-toggle {
-    background: rgba(47,111,237,.6); border-color: var(--accent); color: #fff;
-    box-shadow: 0 0 0 1.5px rgba(255,255,255,.35) inset, 0 1px 6px rgba(0,0,0,.55);
+  /* 2倍速ボタン（fsSpeedBtn、再生ボタン行の右端）のON時ハイライト。
+     #fsControlPanel .icon-btn-step（ID+1クラス）の背景指定に負けないよう、
+     ID+2クラスで明示的に上書きする（A-Bループの時と同様の詳細度対策） */
+  #fsControlPanel .icon-btn.active-toggle {
+    background: rgba(47,111,237,.65); border-color: var(--accent); color: #fff;
   }
-
-  /* A-Bループ/解除の4ボタン行は、限られた幅に4つ収めるためやや小さめに */
-  #fsControlPanel .ab-row .btn { font-size: 11px; padding: 6px 4px 5px; }
 
   /* トリムバーは「帯」ではなく「線」に近い、できるだけ主張を抑えた見た目にする。
      つまみ・再生位置線・開始終了の可動域(緑〜オレンジのグラデーション帯)は
@@ -626,9 +691,9 @@
      両端の旗ボタンが画面端まで離れてしまい、ボタン群が散らばって見えるため） */
   #fsControlPanel .step-row { justify-content: center; gap: 10px; }
   #fsControlPanel .step-row .btn {
-    flex: 0 0 auto; width: auto; padding: 6px 14px; font-size: 12.5px;
+    flex: 0 0 auto; width: auto; padding: 8px 18px; font-size: 13.5px;
   }
-  #fsControlPanel .icon-btn { width: 32px; height: 32px; border-radius: 9px; }
+  #fsControlPanel .icon-btn { width: 36px; height: 36px; border-radius: 10px; }
 
   /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
   .seek-block { position: relative; margin-top: 20px; height: 62px; }
@@ -905,6 +970,12 @@
             <button type="button" class="icon-btn icon-btn-outline-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
             </button>
+            <!-- 全画面表示専用の2倍速ボタン。既存のspeedBtn（動画右上のアイコン）への
+                 クリック委譲で、再生ボタン等の並びを変えずに行の右端へ独立して追加する。
+                 通常表示では .fs-only により非表示。 -->
+            <button type="button" class="icon-btn icon-btn-step fs-only" id="fsSpeedBtn" title="2倍速" aria-label="2倍速">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 4 13 12 5 20"/><polyline points="12 4 20 12 12 20"/></svg>
+            </button>
           </div>
 
           <!-- シークバー: つまみの上の時刻バッジ + 太めのトリムバー -->
@@ -949,9 +1020,12 @@
             </button>
           </div>
 
-          <!-- 全画面表示時のみ使う4ボタン行（開始位置/終了位置はmarkStartBtn/markEndBtnへの
-               クリック委譲。A-Bループ/解除は今回新規追加したプレビュー内ループ再生機能）。
-               通常表示では .fs-only により非表示、#fsControlPanel 内でのみ表示される。 -->
+          <!-- 全画面表示時のみ使う3ボタン行（開始位置/終了位置はmarkStartBtn/markEndBtnへの
+               クリック委譲。A-Bループは今回新規追加したプレビュー内ループ再生機能で、
+               ボタン自体がトグルなので「解除」ボタンは廃止した＝もう一度押せばOFFになる）。
+               通常表示では .fs-only により非表示。全画面時は#fsControlPanel（下部パネル）
+               ではなく、左上の「切り取り範囲です」バッジの下に独立して配置される
+               （.fs-mode #fsAbRow のCSS参照）。 -->
           <div class="row ab-row fs-only" id="fsAbRow">
             <button type="button" class="btn outline outline-green fs-mark-btn" id="fsMarkStartBtn">
               <span class="fs-mark-label">開始位置</span><span class="fs-mark-time" id="fsMarkStartTime">0:00.0</span>
@@ -960,7 +1034,6 @@
               <span class="fs-mark-label">終了位置</span><span class="fs-mark-time" id="fsMarkEndTime">0:00.0</span>
             </button>
             <button type="button" class="btn outline outline-accent" id="abLoopBtn">A-Bループ</button>
-            <button type="button" class="btn outline" id="abClearBtn">解除</button>
           </div>
         </div>
 
@@ -1567,6 +1640,7 @@
    * ======================================================= */
   const playPauseBtn = $("playPauseBtn");
   const speedBtn = $("speedBtn");
+  const fsSpeedBtn = $("fsSpeedBtn");
   let is2xSpeed = false;
 
   function updatePlayPauseLabel() {
@@ -1587,9 +1661,14 @@
   speedBtn.addEventListener("click", () => {
     is2xSpeed = !is2xSpeed;
     previewVideo.playbackRate = is2xSpeed ? 2 : 1;
-    // ON/OFFは動画プレビュー右下の丸いアイコンボタンのハイライト(active-toggle)で示す
+    // ON/OFFは動画プレビュー右下の丸いアイコンボタン、および全画面表示中は
+    // 再生ボタン行右端のfsSpeedBtnのハイライト(active-toggle)で示す
     speedBtn.classList.toggle("active-toggle", is2xSpeed);
+    fsSpeedBtn.classList.toggle("active-toggle", is2xSpeed);
   });
+  // 全画面表示専用の2倍速ボタン（再生ボタン行の右端）。既存のspeedBtnへの
+  // クリック委譲で同じロジックをそのまま使う（通常表示では.fs-onlyにより非表示）
+  fsSpeedBtn.addEventListener("click", () => speedBtn.click());
 
   /* =========================================================
    *  全画面表示モード（v2: 動画を実際に画面いっぱいに表示し、
@@ -1609,11 +1688,14 @@
   const saveCardEl = $("saveNormalBtn").closest(".card");
 
   // 全画面表示中に動画の上へ移動させる要素一式。
-  // （ユーザー指定のレイアウトに合わせて、stepRow・seekBlock・fsAbRow（開始位置/
-  // 終了位置/A-Bループ/解除）・保存カードの4つ。zoomControls・durLine・通常表示の
-  // markRow「この瞬間を開始/終了に」は全画面時は表示せず、通常表示に戻ってから
-  // 使う想定。全画面表示中はシークバーの操作も「再生位置のシーク」のみに
-  // 簡略化している＝下記のrangeWrapのpointerdown参照）
+  // （stepRow・seekBlock・fsAbRow（開始位置/終了位置/A-Bループ）・保存カードの4つ。
+  // zoomControls・durLine・通常表示のmarkRow「この瞬間を開始/終了に」は全画面時は
+  // 表示せず、通常表示に戻ってから使う想定。全画面表示中はシークバーの操作も
+  // 「再生位置のシーク」のみに簡略化している＝下記のrangeWrapのpointerdown参照）
+  // このFS_MOVABLES配列の並び順は、実際のページ読み込み時のDOM上の並び順
+  // （stepRow→seekBlock→fsAbRow→saveCard）と一致させる必要がある。restoreFsOverlay()
+  // はこの並びを逆順に処理して元の位置へ戻すため、順序がズレると復元が壊れる
+  // （どの#fsControlPanel/videoWrap配下に一時的に移動するかとは無関係）。
   // 元の位置（親要素・直後の兄弟要素）はページ読み込み時に一度だけ記録しておき、
   // 終了時にそれぞれ正確に同じ場所へ戻せるようにする
   const FS_MOVABLES = [stepRowEl, seekBlockEl, fsAbRowEl, saveCardEl];
@@ -1628,7 +1710,13 @@
     fsPanel = document.createElement("div");
     fsPanel.id = "fsControlPanel";
     videoWrap.appendChild(fsPanel);
-    FS_MOVABLES.forEach(function (el) { fsPanel.appendChild(el); });
+    // 下部パネルへ移動する表示順（上から）: シークバー → 再生/送り戻し行 → 保存カード
+    // （「再生ボタンの行をシークバーと保存ボタン行の間に配置してほしい」との要望）
+    [seekBlockEl, stepRowEl, saveCardEl].forEach(function (el) { fsPanel.appendChild(el); });
+    // 開始位置/終了位置/A-Bループの行だけは下部パネルに入れず、左上（切り取り範囲
+    // バッジの下）に独立配置する。videoWrap直下に置くことで、動画を覆う
+    // fixedオーバーレイ（videoWrap）の上に重なって見えるようにしている
+    videoWrap.appendChild(fsAbRowEl);
   }
 
   function restoreFsOverlay() {
@@ -1744,16 +1832,16 @@
   document.addEventListener("webkitfullscreenchange", onNativeFullscreenChange);
 
   /* =========================================================
-   *  全画面表示専用の「開始位置/終了位置/A-Bループ/解除」4ボタン行（fsAbRow）
+   *  全画面表示専用の「開始位置/終了位置/A-Bループ」3ボタン行（fsAbRow）
    *  ・開始位置/終了位置は、既存の markStartBtn/markEndBtn へのクリック委譲
    *    （同じ判定ロジック・トースト表示をそのまま利用し、ロジックの重複を避ける）
-   *  ・A-Bループ/解除は今回新規追加した機能：現在の開始〜終了（state.startTime〜
-   *    state.endTime）の範囲だけをプレビュー内でループ再生する
+   *  ・A-Bループは今回新規追加した機能：現在の開始〜終了（state.startTime〜
+   *    state.endTime）の範囲だけをプレビュー内でループ再生する。ボタン自体が
+   *    トグル（もう一度押すとOFF）のため、別途「解除」ボタンは設けていない
    * ======================================================= */
   const fsMarkStartBtn = $("fsMarkStartBtn");
   const fsMarkEndBtn = $("fsMarkEndBtn");
   const abLoopBtn = $("abLoopBtn");
-  const abClearBtn = $("abClearBtn");
   let abLoopEnabled = false;
 
   fsMarkStartBtn.addEventListener("click", () => markStartBtn.click());
@@ -1777,8 +1865,6 @@
     previewVideo.currentTime = state.startTime;
     previewVideo.play().catch(() => { /* 自動再生が拒否された場合は無視 */ });
   });
-  abClearBtn.addEventListener("click", () => setAbLoop(false));
-
   // 再生位置が終了位置に達したら、開始位置へ巻き戻して再生を続ける
   previewVideo.addEventListener("timeupdate", () => {
     if (!abLoopEnabled) return;
