@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 10:45 JST
+     最終更新日時: 2026-09-01 10:51 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -114,6 +114,13 @@
        アイコンを、「この瞬間を開始/終了に」ボタンと同じ旗アイコンに統一。
      ・1秒送り/戻しに加えて、10秒送り/戻しボタンを新設（1秒の行の下に、
        少し控えめな見た目の行として追加）。
+
+     2026-09-01 (機能追加): プレビュー動画そのものを左右になぞって早送り/
+     巻き戻しできるようにした（右になぞる＝進む／左になぞる＝戻る）。
+     指を動かした分だけリアルタイムに再生位置が動く。ドラッグ開始時に
+     再生中だった場合は一旦一時停止し、指を離すと再生を再開する。
+     縦方向のスワイプ（ページスクロール）は従来どおり通すようにしており、
+     横方向のドラッグのみをこの操作として扱う（touch-action: pan-y）。
      ============================================================ -->
 <style>
   :root {
@@ -191,7 +198,10 @@
   video.preview {
     width: 100%; border-radius: 14px 14px 10px 10px; background: #000; display: block;
     max-height: 48vh; object-fit: contain;
+    /* 左右になぞって早送り/巻き戻しできるように。縦スワイプ（ページスクロール）はそのまま通す */
+    touch-action: pan-y; -webkit-user-drag: none; user-select: none; cursor: grab;
   }
+  video.preview.scrubbing { cursor: grabbing; }
 
   /* カードの内側パディング分だけ外側にはみ出させ、動画をカード幅いっぱいに大きく見せる */
   .video-wrap { position: relative; margin: -14px -14px 0 -14px; }
@@ -1119,6 +1129,53 @@
   $("step10FwdBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 10);
   });
+
+  /* =========================================================
+   *  動画プレビューを左右になぞって早送り/巻き戻し
+   *  （右になぞる=進む／左になぞる=戻る。指を動かした分だけリアルタイムに移動する）
+   * ======================================================= */
+  const VIDEO_SWIPE_PIXELS_PER_SECOND = 6; // 6pxのドラッグ＝1秒移動（小さいほど速く動く）
+  const VIDEO_SWIPE_THRESHOLD_PX = 4; // これ未満の移動はタップとみなしスワイプ扱いしない
+
+  function clampTime(t, duration) {
+    return Math.max(0, Math.min(duration, t));
+  }
+
+  let videoSwipe = null; // { pointerId, startX, startTime, wasPlaying, moved }
+
+  previewVideo.addEventListener("pointerdown", (e) => {
+    if (!state.duration) return;
+    videoSwipe = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startTime: previewVideo.currentTime,
+      wasPlaying: !previewVideo.paused,
+      moved: false,
+    };
+  });
+
+  function onVideoSwipeMove(e) {
+    if (!videoSwipe || e.pointerId !== videoSwipe.pointerId) return;
+    const dx = e.clientX - videoSwipe.startX;
+    if (!videoSwipe.moved) {
+      if (Math.abs(dx) < VIDEO_SWIPE_THRESHOLD_PX) return;
+      videoSwipe.moved = true;
+      previewVideo.classList.add("scrubbing");
+      if (videoSwipe.wasPlaying) previewVideo.pause();
+    }
+    const dt = dx / VIDEO_SWIPE_PIXELS_PER_SECOND;
+    previewVideo.currentTime = clampTime(videoSwipe.startTime + dt, state.duration);
+  }
+  function onVideoSwipeEnd(e) {
+    if (!videoSwipe || e.pointerId !== videoSwipe.pointerId) return;
+    const { wasPlaying, moved } = videoSwipe;
+    previewVideo.classList.remove("scrubbing");
+    videoSwipe = null;
+    if (wasPlaying && moved) previewVideo.play().catch(() => {});
+  }
+  window.addEventListener("pointermove", onVideoSwipeMove);
+  window.addEventListener("pointerup", onVideoSwipeEnd);
+  window.addEventListener("pointercancel", onVideoSwipeEnd);
 
   /* =========================================================
    *  「ここが切り取り範囲です」バッジ
