@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 10:51 JST
+     最終更新日時: 2026-09-01 11:58 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -121,6 +121,16 @@
      再生中だった場合は一旦一時停止し、指を離すと再生を再開する。
      縦方向のスワイプ（ページスクロール）は従来どおり通すようにしており、
      横方向のドラッグのみをこの操作として扱う（touch-action: pan-y）。
+
+     2026-09-01 (UI調整): ユーザーからの追加フィードバックを受けて調整。
+     ・10秒送り/戻しボタンを、1秒送り/戻し・再生・開始/終了位置へ移動と同じ1行に統合。
+       1秒/10秒ボタンはアイコンのみ（テキストラベルを廃止）とし、二重矢印(≪/≫)で
+       10秒側と1秒側を区別できるようにした。
+     ・上記に伴い、ボタンを押すと動画の中央に「◀1秒」「10秒 ▶▶」等のバッジが一瞬
+       (700ms)表示されるようにした。ラベルを消した分は、この一瞬のフィードバックで
+       何をしたか分かるようにしている。
+     ・動画を左右になぞっている間、なぞっている位置の再生時刻（例: 1:23.4）を
+       動画中央に表示するようにした。指を離すと0.6秒表示してからフェードアウトする。
      ============================================================ -->
 <style>
   :root {
@@ -216,6 +226,18 @@
   }
   .range-badge.show { display: flex; }
 
+  /* なぞり操作中の再生位置表示／1秒・10秒送り戻しボタンを押したときの一瞬のフィードバック */
+  .scrub-badge {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .75); color: #fff;
+    font-size: 16px; font-weight: 800; letter-spacing: .02em;
+    padding: 9px 18px; border-radius: 24px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.45);
+    pointer-events: none; z-index: 6; white-space: nowrap;
+  }
+  .scrub-badge.show { display: flex; }
+
   /* 動画プレビューに重ねるアイコンボタン（動画を選び直す／2倍速） */
   .overlay-icon-btn {
     position: absolute; width: 32px; height: 32px; border-radius: 50%;
@@ -303,10 +325,8 @@
   }
   .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
   .icon-btn-outline-end { background: var(--card-2); border: 1.5px solid var(--orange); color: var(--orange); }
-
-  /* 10秒送り/戻し（1秒送り/戻しの行の下に、少し控えめに表示） */
-  .step-row-10 { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-  .step-row-10 .btn { font-size: 12px; padding: 10px 2px; white-space: nowrap; }
+  /* 1秒/10秒送り戻し（アイコンのみ。押した内容は動画上の scrub-badge で一瞬表示する） */
+  .icon-btn-step { background: var(--card-2); border: 1px solid var(--border); color: var(--text); }
 
   /* 開始/終了に設定するボタンの行（1秒送り等とは別の行） */
   .dur-line { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 12px; }
@@ -444,6 +464,7 @@
           <div class="video-wrap">
             <video id="previewVideo" class="preview" playsinline></video>
             <div class="range-badge" id="rangeBadge">✂ ここが切り取り範囲です</div>
+            <div class="scrub-badge" id="scrubBadge"></div>
             <button type="button" class="overlay-icon-btn" id="reselectBtn" title="動画を選び直す" aria-label="動画を選び直す">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
             </button>
@@ -452,23 +473,29 @@
             </button>
           </div>
 
-          <!-- 1秒送り/戻し・再生。両端に「開始/終了位置へ移動」アイコンを統合 -->
+          <!-- 10秒/1秒送り戻し・再生を1行に統合。両端に「開始/終了位置へ移動」アイコン。
+               1秒/10秒ボタンはアイコンのみ（押すと動画上に「◀1秒」等のバッジが一瞬表示されるので
+               ラベルなしでも何をしたか分かるようにしている） -->
           <div class="step-row">
             <button type="button" class="icon-btn icon-btn-outline-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
             </button>
-            <button class="btn secondary" id="stepBackBtn">◀ 1秒</button>
+            <button type="button" class="icon-btn icon-btn-step" id="step10BackBtn" title="10秒戻る" aria-label="10秒戻る">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-6 6 6 6"/><path d="M12 6l-6 6 6 6"/></svg>
+            </button>
+            <button type="button" class="icon-btn icon-btn-step" id="stepBackBtn" title="1秒戻る" aria-label="1秒戻る">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+            </button>
             <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
-            <button class="btn secondary" id="stepFwdBtn">1秒 ▶</button>
+            <button type="button" class="icon-btn icon-btn-step" id="stepFwdBtn" title="1秒進む" aria-label="1秒進む">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+            </button>
+            <button type="button" class="icon-btn icon-btn-step" id="step10FwdBtn" title="10秒進む" aria-label="10秒進む">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg>
+            </button>
             <button type="button" class="icon-btn icon-btn-outline-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
             </button>
-          </div>
-
-          <!-- 10秒送り/戻し（1秒より粗い移動用） -->
-          <div class="step-row-10">
-            <button class="btn secondary" id="step10BackBtn">◀◀ 10秒</button>
-            <button class="btn secondary" id="step10FwdBtn">10秒 ▶▶</button>
           </div>
 
           <!-- シークバー: つまみの上の時刻バッジ + 太めのトリムバー -->
@@ -1117,17 +1144,38 @@
     speedBtn.classList.toggle("active-toggle", is2xSpeed);
   });
 
+  /* =========================================================
+   *  動画に重ねる「操作フィードバック」バッジ
+   *  ・1秒/10秒送り戻しボタンを押した内容（◀1秒 等）を一瞬表示
+   *  ・動画をなぞっている間は、今の再生位置（秒数）をリアルタイムに表示
+   * ======================================================= */
+  const scrubBadge = $("scrubBadge");
+  let scrubBadgeHideTimer = null;
+  function showScrubBadgeText(text) {
+    scrubBadge.textContent = text;
+    scrubBadge.classList.add("show");
+  }
+  function flashScrubBadge(text, ms) {
+    clearTimeout(scrubBadgeHideTimer);
+    showScrubBadgeText(text);
+    scrubBadgeHideTimer = setTimeout(() => scrubBadge.classList.remove("show"), ms || 700);
+  }
+
   $("stepBackBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 1);
+    flashScrubBadge("◀ 1秒");
   });
   $("stepFwdBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 1);
+    flashScrubBadge("1秒 ▶");
   });
   $("step10BackBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 10);
+    flashScrubBadge("◀◀ 10秒");
   });
   $("step10FwdBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 10);
+    flashScrubBadge("10秒 ▶▶");
   });
 
   /* =========================================================
@@ -1164,13 +1212,18 @@
       if (videoSwipe.wasPlaying) previewVideo.pause();
     }
     const dt = dx / VIDEO_SWIPE_PIXELS_PER_SECOND;
-    previewVideo.currentTime = clampTime(videoSwipe.startTime + dt, state.duration);
+    const t = clampTime(videoSwipe.startTime + dt, state.duration);
+    previewVideo.currentTime = t;
+    // なぞっている間は継続表示（自動で消えないよう、都度タイマーをクリアする）
+    clearTimeout(scrubBadgeHideTimer);
+    showScrubBadgeText(formatTime(t));
   }
   function onVideoSwipeEnd(e) {
     if (!videoSwipe || e.pointerId !== videoSwipe.pointerId) return;
     const { wasPlaying, moved } = videoSwipe;
     previewVideo.classList.remove("scrubbing");
     videoSwipe = null;
+    if (moved) flashScrubBadge(formatTime(previewVideo.currentTime), 600);
     if (wasPlaying && moved) previewVideo.play().catch(() => {});
   }
   window.addEventListener("pointermove", onVideoSwipeMove);
