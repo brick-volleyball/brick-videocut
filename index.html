@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 15:13 JST
+     最終更新日時: 2026-09-01 16:06 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -197,6 +197,26 @@
        別アプリのボタンが動画に浮かんで見えるスタイルに近づけている）。
      ・これらの上書きはすべて #fsControlPanel を起点にしたIDセレクタで指定して
        いるため、通常表示（全画面でないとき）の見た目には一切影響しない。
+
+     2026-09-01 (機能追加・簡略化): 全画面表示のレイアウトを指定どおりに再構成（v4→v5）。
+     ・ユーザーから、参考アプリの実際のスクリーンショットとともに、全画面時のレイアウトを
+       次の5点で指定するフィードバックがあった：
+       (1)左上に「切り取り範囲です」バッジ、(2)右上の読み込み直し/2倍速/全画面終了ボタンは
+       そのまま、(3)シークバーは開始/終了/再生位置を表示しつつ全画面時は再生位置のみ
+       ドラッグ可能でよい、(4)開始/終了位置へ移動ボタン(旗)を再生ボタン行の両端に、
+       (5)通常保存/Nice/Fun/静止画ボタンを並べる。
+     ・(1)(2)は既存のv3〜v4の実装のまま。(4)(5)も既存のstepRow・保存カードをそのまま
+       流用（stepRowの両端には元々jumpStartBtn/jumpEndBtnの旗ボタンがある）。
+     ・全画面時にオーバーレイパネルへ移動する要素を、従来の6要素
+       （stepRow/seekBlock/zoomControls/durLine/markRow/保存カード）から、指定された
+       構成に合わせて3要素（stepRow・seekBlock・保存カード）に絞った。ズームコントロール・
+       切り出し長さ表示・「この瞬間を開始/終了に」ボタンは全画面表示中は表示しない
+       （通常表示に戻ってから使う想定）。パネルの内容が減ったことで、パネルの高さも
+       自然に小さくなり、動画がより広く見えるようにもなっている。
+     ・(3)に対応するため、トリムバー（rangeWrap）のポインター操作に全画面判定を追加。
+       全画面表示中は、シークバーへのタッチを常に「再生位置のシーク」として扱い、
+       開始/終了ハンドルのドラッグ微調整・2本指ピンチズームは無効化した
+       （通常表示時の挙動・判定ロジックには一切変更なし）。
      ============================================================ -->
 <style>
   :root {
@@ -1174,6 +1194,18 @@
     e.preventDefault();
     activeRangePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+    // 全画面表示中は「開始/終了位置と再生位置を表示しつつ、シークバーでは
+    // 再生位置のみ動かせる」という簡略な操作にする（開始/終了ハンドルの
+    // ドラッグ微調整・ピンチズームは行わない。細かい調整は全画面表示を
+    // 終了してから行う想定）
+    if (isFullscreenMode) {
+      pinch = null;
+      handleDragPointerId = null;
+      seekPointerId = e.pointerId;
+      seekToClientX(e.clientX);
+      return;
+    }
+
     if (activeRangePointers.size >= 2) {
       seekPointerId = null;
       handleDragPointerId = null;
@@ -1194,6 +1226,11 @@
   function onRangePointerMove(e) {
     if (!activeRangePointers.has(e.pointerId)) return;
     activeRangePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (isFullscreenMode) {
+      if (seekPointerId === e.pointerId) seekToClientX(e.clientX);
+      return;
+    }
 
     if (activeRangePointers.size >= 2) {
       if (!pinch) {
@@ -1320,15 +1357,16 @@
   const videoWrap = $("videoWrap");
   const stepRowEl = document.querySelector(".step-row");
   const seekBlockEl = document.querySelector(".seek-block");
-  const zoomControlsEl = $("zoomControls");
-  const durLineEl = document.querySelector(".dur-line");
-  const markRowEl = document.querySelector(".row.mark-row");
   const saveCardEl = $("saveNormalBtn").closest(".card");
 
   // 全画面表示中に動画の上へ移動させる要素一式。
+  // （ユーザー指定のレイアウトに合わせて、stepRow・seekBlock・保存カードの3つに
+  // 絞っている。zoomControls・durLine・markRow「この瞬間を開始/終了に」は全画面時は
+  // 表示せず、通常表示に戻ってから使う想定。全画面表示中はシークバーの操作も
+  // 「再生位置のシーク」のみに簡略化している＝下記のrangeWrapのpointerdown参照）
   // 元の位置（親要素・直後の兄弟要素）はページ読み込み時に一度だけ記録しておき、
   // 終了時にそれぞれ正確に同じ場所へ戻せるようにする
-  const FS_MOVABLES = [stepRowEl, seekBlockEl, zoomControlsEl, durLineEl, markRowEl, saveCardEl];
+  const FS_MOVABLES = [stepRowEl, seekBlockEl, saveCardEl];
   const fsHomes = FS_MOVABLES.map(function (el) {
     return { el: el, parent: el.parentNode, next: el.nextSibling };
   });
