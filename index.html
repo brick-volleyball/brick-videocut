@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 14:49 JST
+     最終更新日時: 2026-09-01 15:13 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -183,6 +183,20 @@
        同じ位置）に配置してしまっていたため重なっていた。全画面終了・2倍速・
        動画を選び直すの3アイコンを右上の1列にまとめ、range-badgeとは絶対に
        ぶつからないようにした。
+
+     2026-09-01 (修正): 全画面表示モードのコントロールパネルを半透明化（v3→v4）。
+     ・「横向きの全画面にすると操作画面で動画が隠れている。ボタン等を透明系にして
+       参考画像に近づけてほしい」とのフィードバックを受けて修正。
+     ・原因：v3で動画自体は画面いっぱい(100%×100%)に表示されるよう直したが、
+       #fsControlPanel の背景がほぼ不透明（下側65%がalpha .96）だったため、
+       結果的に動画の下半分が見た目上ほぼ隠れてしまっていた。
+     ・#fsControlPanel 自体の背景はごく薄いグラデーション（下端付近のみうっすら
+       黒みがかる程度）に変更し、代わりにボタン・トリムバー等の個々の要素を
+       半透明化（backdrop-filterのぼかし＋各色の半透明版の背景＋影）することで、
+       視認性を保ちながら隙間から動画が透けて見えるようにした（参考いただいた
+       別アプリのボタンが動画に浮かんで見えるスタイルに近づけている）。
+     ・これらの上書きはすべて #fsControlPanel を起点にしたIDセレクタで指定して
+       いるため、通常表示（全画面でないとき）の見た目には一切影響しない。
      ============================================================ -->
 <style>
   :root {
@@ -351,11 +365,15 @@
 
   /* 全画面表示中、動画の下端に「重ねる」コントロール一式のパネル。
      position:absoluteで動画の上に浮かせているだけなので、パネルの高さは
-     動画自体の表示サイズに一切影響しない。 */
+     動画自体の表示サイズに一切影響しない。
+     パネル自体の背景はごく薄く（ほぼ透明）にとどめ、実際の視認性はボタン等
+     個々の要素を半透明化することで確保する（参考いただいた別アプリのように、
+     動画がボタンの隙間からもしっかり透けて見える見た目にするため。旧実装は
+     パネル背景がほぼ不透明で、動画の下側が丸ごと隠れて見えてしまっていた）。 */
   #fsControlPanel {
     position: absolute; left: 0; right: 0; bottom: 0;
     max-height: 64vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
-    background: linear-gradient(to top, rgba(8,10,14,.96) 65%, rgba(8,10,14,.82) 90%, rgba(8,10,14,0));
+    background: linear-gradient(to top, rgba(0,0,0,.45) 0%, rgba(0,0,0,.22) 38%, rgba(0,0,0,0) 72%);
     padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     border-radius: 16px 16px 0 0;
   }
@@ -364,6 +382,29 @@
   }
   #fsControlPanel .card:first-child { margin-top: 0; }
   #fsControlPanel .seek-block { margin-top: 18px; }
+
+  /* 全画面表示中のボタン・トリムバー類を半透明化し、動画がうっすら透けて
+     見えるようにする（IDセレクタでの上書きなので、通常時の見た目には影響しない） */
+  #fsControlPanel .btn,
+  #fsControlPanel .icon-btn,
+  #fsControlPanel .zoom-pan-btn,
+  #fsControlPanel .trim-bar {
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 1px 8px rgba(0,0,0,.5);
+  }
+  #fsControlPanel .btn.secondary,
+  #fsControlPanel .icon-btn-step,
+  #fsControlPanel .zoom-pan-btn {
+    background: rgba(31,35,44,.5); border-color: rgba(255,255,255,.2);
+  }
+  #fsControlPanel .icon-btn-outline-start { background: rgba(31,35,44,.4); }
+  #fsControlPanel .icon-btn-outline-end { background: rgba(31,35,44,.4); }
+  #fsControlPanel .btn.green { background: rgba(47,143,78,.62); }
+  #fsControlPanel .btn.orange { background: rgba(224,86,63,.62); }
+  #fsControlPanel .btn:not(.secondary):not(.green):not(.orange) { background: rgba(47,111,237,.62); }
+  #fsControlPanel .trim-bar { background: rgba(31,35,44,.45); border-color: rgba(255,255,255,.2); }
+  #fsControlPanel .zoom-reset-pill { background: rgba(47,111,237,.22); }
+  #fsControlPanel .warn-box { background: rgba(217,165,58,.16); }
 
   /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
   .seek-block { position: relative; margin-top: 20px; height: 62px; }
