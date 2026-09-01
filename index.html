@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-02 06:12 JST
+     最終更新日時: 2026-09-02 06:40 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -397,6 +397,31 @@
        正しく分かれて配置されることを確認済み。構文チェック・id参照整合性も
        再確認済み。実機での見え方（特に左上のfsAbRowの視認性・大きくした
        ボタンのバランス）は次回確認予定。
+
+     2026-09-02 (改善): 全画面表示の倍速ボタン・再生ボタン行の配置を微調整（v11）。
+     ・倍速ボタン（fsSpeedBtn）を「≫」アイコンから「倍速」というテキストラベルに
+       変更（アイコンのままだと押した意味が分かりづらいとの指摘）。表示上は
+       playPauseBtnと同じ.btn.secondaryスタイルのピルボタンにした。
+     ・再生系7ボタン（開始/終了位置へ移動・10秒/1秒送り戻し・再生）を新設の
+       .step-row-mainという内側のdivにまとめ、.step-rowの直接の子要素を
+       [.step-row-main, fsSpeedBtn]の2つだけにした。全画面表示では
+       #fsControlPanel .step-row-mainをflex:1 1 autoで伸ばして行の余白を
+       すべて吸収させ、その中でjustify-content:centerにより中央ぞろいにする。
+       fsSpeedBtnは.step-row-mainの外側の兄弟要素なので、伸びた
+       .step-row-mainの右隣＝行の右端に自然に押し出される（単純に
+       margin-left:autoをfsSpeedBtnに付けるだけだと再生系ボタン側が左に
+       寄ってしまい中央ぞろいにならないため、この入れ子構造にした）。
+     ・通常表示（.step-row-mainの基本CSSはdisplay:flex; flex:1 1 auto）では
+       この入れ子化による見た目の変化はない（fsSpeedBtnは.fs-onlyのままなので
+       非表示）。stepRowElはdocument.querySelector(".step-row")のままで
+       変わらず、FS_MOVABLES・enterFsOverlay()のロジックには一切手を
+       入れていない。
+     ・fsSpeedBtnのON時ハイライト（active-toggle）は、アイコン→テキスト化に
+       伴い.icon-btnから.btn.secondaryに変わったため、既存の
+       #fsControlPanel .icon-btn.active-toggleルールではもう当たらなくなっていた。
+       #fsControlPanel #fsSpeedBtn.active-toggle（IDセレクタ）に差し替えて、
+       #fsControlPanel .btn.secondaryの背景指定に負けないようにした
+       （これまでと同様のCSS詳細度対策）。
      ============================================================ -->
 <style>
   :root {
@@ -663,10 +688,11 @@
      （左上、.fs-mode #fsAbRow）に配置されるため、半透明化やA-Bループの
      ハイライトの上書きも.fs-mode #fsAbRow側に定義している（上のブロック参照） */
 
-  /* 2倍速ボタン（fsSpeedBtn、再生ボタン行の右端）のON時ハイライト。
-     #fsControlPanel .icon-btn-step（ID+1クラス）の背景指定に負けないよう、
-     ID+2クラスで明示的に上書きする（A-Bループの時と同様の詳細度対策） */
-  #fsControlPanel .icon-btn.active-toggle {
+  /* 倍速ボタン（fsSpeedBtn、再生ボタン行の右端）のON時ハイライト。
+     アイコン→テキストラベル「倍速」に変更したのに伴い .btn.secondary になったため、
+     #fsControlPanel .btn.secondary（ID+2クラス）の背景指定に負けないよう、
+     IDセレクタで明示的に上書きする（A-Bループの時と同様の詳細度対策） */
+  #fsControlPanel #fsSpeedBtn.active-toggle {
     background: rgba(47,111,237,.65); border-color: var(--accent); color: #fff;
   }
 
@@ -687,9 +713,13 @@
      同程度の大きさに収めて、参考レイアウトのように行の中に均等に浮かべる
      （通常表示のstep-rowはflex:1で play ボタンが伸びる仕様のままなので、
      ここは #fsControlPanel 限定の上書き）。
-     行全体は画面幅いっぱいに広げず中央に寄せてまとめる（space-between だと
-     両端の旗ボタンが画面端まで離れてしまい、ボタン群が散らばって見えるため） */
-  #fsControlPanel .step-row { justify-content: center; gap: 10px; }
+     再生系7ボタンは内側の.step-row-mainにまとめてあるので、.step-row-mainを
+     flex:1で伸ばして行の余白をすべて吸収させ、その中でjustify-content:centerに
+     よって中央ぞろいにする。倍速ボタン（fsSpeedBtn）は.step-row-mainの外側の
+     兄弟要素なので、伸びた.step-row-mainの右隣＝行の右端に自然に押し出される
+     （「再生ボタンらは中央ぞろい、倍速ボタンは右端に配置」との要望） */
+  #fsControlPanel .step-row { gap: 10px; }
+  #fsControlPanel .step-row-main { flex: 1 1 auto; justify-content: center; gap: 10px; }
   #fsControlPanel .step-row .btn {
     flex: 0 0 auto; width: auto; padding: 8px 18px; font-size: 13.5px;
   }
@@ -765,6 +795,11 @@
 
   /* 1秒送り/戻し・再生の行に統合した「開始/終了位置へ移動」アイコン */
   .step-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+  /* 再生系7ボタン（開始/終了へ移動・10秒/1秒送り戻し・再生）をまとめる内側の行。
+     倍速ボタン（fsSpeedBtn、通常表示では非表示）を.step-rowの兄弟として
+     独立させるためのラッパーで、通常表示ではflex:1で.step-row全体に広がり
+     見た目は従来と変わらない（全画面表示時の中央ぞろい配置は#fsControlPanel側で上書き） */
+  .step-row-main { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
   .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 12px 2px; white-space: nowrap; }
   .icon-btn {
     width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
@@ -951,31 +986,39 @@
                1秒/10秒ボタンはアイコンのみ（押すと動画上に「◀1秒」等のバッジが一瞬表示されるので
                ラベルなしでも何をしたか分かるようにしている） -->
           <div class="step-row">
-            <button type="button" class="icon-btn icon-btn-outline-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
-            </button>
-            <button type="button" class="icon-btn icon-btn-step" id="step10BackBtn" title="10秒戻る" aria-label="10秒戻る">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-6 6 6 6"/><path d="M12 6l-6 6 6 6"/></svg>
-            </button>
-            <button type="button" class="icon-btn icon-btn-step" id="stepBackBtn" title="1秒戻る" aria-label="1秒戻る">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
-            </button>
-            <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
-            <button type="button" class="icon-btn icon-btn-step" id="stepFwdBtn" title="1秒進む" aria-label="1秒進む">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-            </button>
-            <button type="button" class="icon-btn icon-btn-step" id="step10FwdBtn" title="10秒進む" aria-label="10秒進む">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg>
-            </button>
-            <button type="button" class="icon-btn icon-btn-outline-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
-            </button>
-            <!-- 全画面表示専用の2倍速ボタン。既存のspeedBtn（動画右上のアイコン）への
-                 クリック委譲で、再生ボタン等の並びを変えずに行の右端へ独立して追加する。
-                 通常表示では .fs-only により非表示。 -->
-            <button type="button" class="icon-btn icon-btn-step fs-only" id="fsSpeedBtn" title="2倍速" aria-label="2倍速">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 4 13 12 5 20"/><polyline points="12 4 20 12 12 20"/></svg>
-            </button>
+            <!-- 再生系7ボタンを内側の.step-row-mainにまとめることで、fsSpeedBtnを
+                 行に加えても再生系ボタン群だけを中央ぞろいのグループとして扱える。
+                 通常表示ではstep-row-mainがflex:1で伸びるので見た目は従来通り、
+                 全画面表示では#fsControlPanel .step-row-mainがjustify-content:center
+                 になり、fsSpeedBtnだけが行の右端に独立して残る
+                 （「再生ボタンらは中央ぞろい、倍速ボタンは右端に配置」との要望）。 -->
+            <div class="step-row-main">
+              <button type="button" class="icon-btn icon-btn-outline-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-step" id="step10BackBtn" title="10秒戻る" aria-label="10秒戻る">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-6 6 6 6"/><path d="M12 6l-6 6 6 6"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-step" id="stepBackBtn" title="1秒戻る" aria-label="1秒戻る">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+              </button>
+              <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
+              <button type="button" class="icon-btn icon-btn-step" id="stepFwdBtn" title="1秒進む" aria-label="1秒進む">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-step" id="step10FwdBtn" title="10秒進む" aria-label="10秒進む">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-outline-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              </button>
+            </div>
+            <!-- 全画面表示専用の倍速ボタン。既存のspeedBtn（動画右上のアイコン）への
+                 クリック委譲で、再生ボタン等（.step-row-main）の並びを変えずに
+                 行の右端へ独立して配置する。通常表示では .fs-only により非表示。
+                 アイコンでは「押した意味」が伝わりにくいため、テキストラベル
+                 「倍速」に変更（アイコン→テキストの変更依頼） -->
+            <button type="button" class="btn secondary fs-speed-btn fs-only" id="fsSpeedBtn" title="倍速" aria-label="倍速">倍速</button>
           </div>
 
           <!-- シークバー: つまみの上の時刻バッジ + 太めのトリムバー -->
