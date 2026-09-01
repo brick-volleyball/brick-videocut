@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 13:59 JST
+     最終更新日時: 2026-09-01 14:31 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -146,6 +146,30 @@
        登録済みのイベントリスナーはそのまま保持される（再登録は不要）。
      ・再配置ロジックはjsdomを使ったDOMテストで、全画面のON/OFFを複数回繰り返しても
        元の位置に正確に戻ることを確認済み。
+
+     2026-09-01 (修正・機能追加): 全画面表示モードをv2に刷新。
+     ・「動画が全画面表示になっていない」「全画面ボタンが緑の旗マークと重なる」という
+       フィードバックを受けて対応。
+     ・#videoWrap を position:fixed で画面全体に固定表示するようにし、動画自体が
+       実際に画面いっぱいに表示されるようにした（object-fit:containで黒帯レターボックス）。
+       あわせて対応環境では requestFullscreen() も呼び出し、ブラウザのアドレスバー等も
+       隠れる本来の全画面表示になるようにした（非対応環境・失敗時もfixed表示により
+       画面いっぱいの見た目は保たれる）。
+     ・従来はstepRow（再生/送り戻し行）のみを動画に重ねていたが、v2ではトリムバー
+       （開始/終了つまみ・ミニマップ）・「この瞬間を開始/終了に」・保存ボタン
+       （通常保存/Nice/Fun/静止画）まで含めた操作系すべてを、動画下端の半透明パネル
+       （#fsControlPanel）へまとめて重ねるようにした。動画を選び直す/2倍速/全画面終了の
+       3つの丸いアイコンボタンは、パネルと重ならないよう上端の1列（全画面終了=左端、
+       2倍速・動画を選び直す=右側）にまとめて配置し直し、これが今回の重なり不具合の
+       直接の修正箇所。
+     ・パネルは内容が画面に収まりきらない縦長でない端末でもスクロールできるよう
+       max-height + overflow-y:autoでフォールバックしている。
+     ・Androidの「戻る」操作等でブラウザ側の全画面表示だけが解除された場合に備え、
+       fullscreenchangeイベントを監視してアプリ側の表示状態も自動的に追従させる処理を追加。
+     ・移動対象が1要素から6要素（stepRow/seekBlock/zoomControls/durLine/markRow/
+       保存カード）に増えたため、要素ごとの元の位置（親要素・直後の兄弟要素）を
+       記録した上で、復元時は記録した順と逆順に戻す方式に変更（先に戻した要素を
+       基準に後続の要素を正しい位置へ挿入できるようにするため）。
      ============================================================ -->
 <style>
   :root {
@@ -269,27 +293,56 @@
   .fs-mode #fullscreenBtn .ic-expand { display: none; }
   .fs-mode #fullscreenBtn .ic-compress { display: block; }
 
-  /* ===== 全画面表示モード =====
-     ヘッダー／下部タブバーを隠し、main（クリップ作成画面）が画面いっぱいに広がるようにする。
-     動画自体も大きく表示し、再生/1秒10秒送り戻し/開始・終了へ移動の行は動画の下端に
-     半透明の帯として重ねて表示する（トリムバー・この瞬間を開始/終了に・保存ボタンは
-     動画のすぐ下に、これまでどおりの見やすい形で表示したまま）。 */
+  /* ===== 全画面表示モード（v2） =====
+     #videoWrap を画面全体に固定表示して動画を実際に画面いっぱいに表示し、
+     操作系のコントロール一式（再生/送り戻し・トリムバー・この瞬間を開始/終了に・
+     保存ボタン）は #fsControlPanel として動画の下端に半透明パネルで重ねて表示する。
+     ヘッダー／下部タブバーは（fixed表示に隠れるため実害はないが）念のため非表示にする。 */
   .fs-mode header,
   .fs-mode nav.tabbar {
     display: none;
   }
-  .fs-mode main {
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  .fs-mode #videoWrap {
+    position: fixed; inset: 0; z-index: 60;
+    margin: 0; background: #000;
+    display: flex; flex-direction: column;
   }
   .fs-mode video.preview {
-    max-height: 62vh;
+    flex: 1 1 auto; min-height: 0; width: 100%; max-height: none;
+    border-radius: 0; object-fit: contain;
   }
-  .video-wrap .step-row.step-row-overlay {
-    position: absolute; left: 0; right: 0; bottom: 0; margin: 0;
-    padding: 10px 8px calc(10px + env(safe-area-inset-bottom, 0px));
-    background: linear-gradient(to top, rgba(0,0,0,.8), rgba(0,0,0,0));
-    border-radius: 0 0 10px 10px; z-index: 5;
+  .fs-mode .range-badge {
+    top: calc(10px + env(safe-area-inset-top));
   }
+  /* 動画に重ねるアイコン3つは、全画面時は全てオーバーレイパネル（下端）と
+     ぶつからないよう上端の1列にまとめる（旧レイアウトで下端アイコンと
+     stepRowの旗ボタンが重なっていた不具合の修正） */
+  .fs-mode #fullscreenBtn {
+    top: calc(8px + env(safe-area-inset-top)); bottom: auto;
+    left: calc(8px + env(safe-area-inset-left)); right: auto;
+  }
+  .fs-mode #reselectBtn {
+    top: calc(8px + env(safe-area-inset-top));
+    right: calc(8px + env(safe-area-inset-right));
+  }
+  .fs-mode #speedBtn {
+    top: calc(8px + env(safe-area-inset-top)); bottom: auto;
+    right: calc(48px + env(safe-area-inset-right));
+  }
+
+  /* 全画面表示中、動画の下端に重ねるコントロール一式のパネル */
+  #fsControlPanel {
+    width: 100%; flex-shrink: 0;
+    max-height: 58vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: linear-gradient(to top, rgba(10,12,16,.97) 60%, rgba(10,12,16,.85) 88%, rgba(10,12,16,0));
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
+  }
+  #fsControlPanel .card {
+    background: transparent; border: none; padding: 0; margin: 14px 0 0;
+  }
+  #fsControlPanel .card:first-child { margin-top: 0; }
+  #fsControlPanel .seek-block { margin-top: 18px; }
 
   /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
   .seek-block { position: relative; margin-top: 20px; height: 62px; }
@@ -1192,42 +1245,116 @@
   });
 
   /* =========================================================
-   *  全画面表示モード
-   *  ヘッダー／下部タブバーを隠して動画を大きく表示し、再生/1秒10秒送り戻し/
-   *  開始・終了へ移動の行（stepRow）は動画の下端に重ねて表示する。
-   *  （トリムバー・この瞬間を開始/終了に・保存ボタンは動画のすぐ下に据え置き）
+   *  全画面表示モード（v2: 動画を実際に画面いっぱいに表示し、
+   *  操作系のコントロール一式を動画下端のオーバーレイパネルにまとめて重ねる）
+   *  ・#videoWrap を position:fixed で画面全体に固定表示することで、
+   *    Fullscreen API が使えない環境でも確実に「動画が画面いっぱい」になるようにする
+   *    （加えて、対応環境では requestFullscreen() も呼び、アドレスバー等も隠す）
+   *  ・stepRow・seekBlock（トリムバー）・zoomControls・durLine・markRow・保存カードを
+   *    まとめて #fsControlPanel という1つのオーバーレイパネルへ移動し、動画の下に
+   *    半透明の帯として重ねて表示する。終了時は全て元の位置へ正確に戻す
    * ======================================================= */
   const fullscreenBtn = $("fullscreenBtn");
   const videoWrap = $("videoWrap");
   const stepRowEl = document.querySelector(".step-row");
-  // stepRowを一時的に動画の中へ移動させるので、元の位置（親と直後の兄弟要素）を覚えておき、
-  // 全画面表示を終了するときに正確に同じ場所へ戻せるようにする
-  const stepRowHome = { parent: stepRowEl.parentNode, next: stepRowEl.nextSibling };
-  let isFullscreenMode = false;
+  const seekBlockEl = document.querySelector(".seek-block");
+  const zoomControlsEl = $("zoomControls");
+  const durLineEl = document.querySelector(".dur-line");
+  const markRowEl = document.querySelector(".row.mark-row");
+  const saveCardEl = $("saveNormalBtn").closest(".card");
 
-  function restoreStepRow() {
-    stepRowEl.classList.remove("step-row-overlay");
-    if (stepRowHome.next && stepRowHome.next.parentNode === stepRowHome.parent) {
-      stepRowHome.parent.insertBefore(stepRowEl, stepRowHome.next);
-    } else {
-      stepRowHome.parent.appendChild(stepRowEl);
+  // 全画面表示中に動画の上へ移動させる要素一式。
+  // 元の位置（親要素・直後の兄弟要素）はページ読み込み時に一度だけ記録しておき、
+  // 終了時にそれぞれ正確に同じ場所へ戻せるようにする
+  const FS_MOVABLES = [stepRowEl, seekBlockEl, zoomControlsEl, durLineEl, markRowEl, saveCardEl];
+  const fsHomes = FS_MOVABLES.map(function (el) {
+    return { el: el, parent: el.parentNode, next: el.nextSibling };
+  });
+
+  let isFullscreenMode = false;
+  let fsPanel = null;
+
+  function enterFsOverlay() {
+    fsPanel = document.createElement("div");
+    fsPanel.id = "fsControlPanel";
+    videoWrap.appendChild(fsPanel);
+    FS_MOVABLES.forEach(function (el) { fsPanel.appendChild(el); });
+  }
+
+  function restoreFsOverlay() {
+    // 記録した順と逆順に戻すことで、「直後の兄弟要素」が先に正しい位置へ
+    // 復元済みになっている状態を保証し、常に正確な位置へ挿入できるようにしている
+    for (let i = fsHomes.length - 1; i >= 0; i--) {
+      const home = fsHomes[i];
+      if (home.next && home.next.parentNode === home.parent) {
+        home.parent.insertBefore(home.el, home.next);
+      } else {
+        home.parent.appendChild(home.el);
+      }
     }
+    if (fsPanel && fsPanel.parentNode) fsPanel.parentNode.removeChild(fsPanel);
+    fsPanel = null;
+  }
+
+  // Fullscreen API（対応環境のみ。失敗しても position:fixed による疑似全画面で続行できる）
+  function requestElementFullscreen(el) {
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen ||
+      el.webkitRequestFullScreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (!fn) return Promise.reject(new Error("fullscreen API not supported"));
+    try {
+      const p = fn.call(el);
+      return (p && typeof p.then === "function") ? p : Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+  function currentFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement ||
+      document.webkitCurrentFullScreenElement || null;
+  }
+  function exitElementFullscreen() {
+    if (!currentFullscreenElement()) return;
+    const fn = document.exitFullscreen || document.webkitExitFullscreen || document.webkitCancelFullScreen;
+    if (fn) { try { fn.call(document); } catch (e) { /* 無視 */ } }
+  }
+
+  function applyFsModeOn() {
+    document.body.classList.add("fs-mode");
+    fullscreenBtn.title = "全画面表示を終了";
+    fullscreenBtn.setAttribute("aria-label", "全画面表示を終了");
+    enterFsOverlay();
+  }
+  function applyFsModeOff() {
+    document.body.classList.remove("fs-mode");
+    fullscreenBtn.title = "全画面表示";
+    fullscreenBtn.setAttribute("aria-label", "全画面表示");
+    restoreFsOverlay();
   }
 
   fullscreenBtn.addEventListener("click", () => {
-    isFullscreenMode = !isFullscreenMode;
-    document.body.classList.toggle("fs-mode", isFullscreenMode);
-    const label = isFullscreenMode ? "全画面表示を終了" : "全画面表示";
-    fullscreenBtn.title = label;
-    fullscreenBtn.setAttribute("aria-label", label);
-
-    if (isFullscreenMode) {
-      videoWrap.appendChild(stepRowEl);
-      stepRowEl.classList.add("step-row-overlay");
+    if (!isFullscreenMode) {
+      isFullscreenMode = true;
+      applyFsModeOn();
+      // 対応環境ではブラウザのアドレスバー等も隠す本物の全画面表示を試みる。
+      // 非対応・失敗時も position:fixed 表示は既に適用済みなので見た目は崩れない
+      requestElementFullscreen(videoWrap).catch(() => { /* 疑似全画面のまま続行 */ });
     } else {
-      restoreStepRow();
+      isFullscreenMode = false;
+      applyFsModeOff();
+      exitElementFullscreen();
     }
   });
+
+  // Androidの「戻る」操作などでネイティブ全画面表示だけが解除された場合に、
+  // アプリ側の表示状態（fs-mode・オーバーレイパネル）も追従させてズレを防ぐ
+  function onNativeFullscreenChange() {
+    if (isFullscreenMode && !currentFullscreenElement()) {
+      isFullscreenMode = false;
+      applyFsModeOff();
+    }
+  }
+  document.addEventListener("fullscreenchange", onNativeFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onNativeFullscreenChange);
 
   /* =========================================================
    *  動画に重ねる「操作フィードバック」バッジ
