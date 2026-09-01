@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 14:31 JST
+     最終更新日時: 2026-09-01 14:49 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -170,6 +170,19 @@
        保存カード）に増えたため、要素ごとの元の位置（親要素・直後の兄弟要素）を
        記録した上で、復元時は記録した順と逆順に戻す方式に変更（先に戻した要素を
        基準に後続の要素を正しい位置へ挿入できるようにするため）。
+
+     2026-09-01 (修正): 全画面表示モードの表示崩れを修正（v2→v3）。
+     ・実機（ランドスケープ表示）のスクリーンショットで、「動画が全体表示され
+       ていない」「全画面終了アイコンが✂バッジと重なっている」との指摘を受けて修正。
+     ・原因1：#videoWrapをflexboxにして動画とコントロールパネルでスペースを
+       分け合う実装だったため、パネルの分だけ動画の表示サイズが縮んでしまっていた。
+       動画を position:absolute; inset:0 で常に画面いっぱい(100%×100%)に表示させ、
+       コントロールパネルはその「上」に絶対配置で重ねる形に変更。パネルの高さは
+       もう動画の表示サイズに一切影響しない。
+     ・原因2：全画面終了アイコンを左上（range-badge「✂ここが切り取り範囲です」と
+       同じ位置）に配置してしまっていたため重なっていた。全画面終了・2倍速・
+       動画を選び直すの3アイコンを右上の1列にまとめ、range-badgeとは絶対に
+       ぶつからないようにした。
      ============================================================ -->
 <style>
   :root {
@@ -305,36 +318,44 @@
   .fs-mode #videoWrap {
     position: fixed; inset: 0; z-index: 60;
     margin: 0; background: #000;
-    display: flex; flex-direction: column;
   }
+  /* 動画自体は常に画面いっぱい(横100%×縦100%)を占有させる。
+     コントロールパネルは flex でスペースを分け合うのではなく、動画の上に
+     絶対配置で「重ねる」ことで、動画の表示サイズが操作パネルに食われないようにする
+     （旧v2でパネルの高さ分だけ動画が縮んでしまっていた不具合の修正） */
   .fs-mode video.preview {
-    flex: 1 1 auto; min-height: 0; width: 100%; max-height: none;
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; max-height: none;
     border-radius: 0; object-fit: contain;
   }
   .fs-mode .range-badge {
     top: calc(10px + env(safe-area-inset-top));
   }
-  /* 動画に重ねるアイコン3つは、全画面時は全てオーバーレイパネル（下端）と
-     ぶつからないよう上端の1列にまとめる（旧レイアウトで下端アイコンと
-     stepRowの旗ボタンが重なっていた不具合の修正） */
+  /* 動画に重ねるアイコン3つは、全画面時はすべて右上の1列にまとめる。
+     左上の range-badge（切り取り範囲表示）や下端のコントロールパネルと
+     絶対にぶつからない位置（旧v2で全画面終了アイコンをrange-badgeと同じ
+     左上に置いてしまい重なっていた不具合の修正）。全画面終了アイコンを
+     画面端に一番近い位置に置く。 */
   .fs-mode #fullscreenBtn {
     top: calc(8px + env(safe-area-inset-top)); bottom: auto;
-    left: calc(8px + env(safe-area-inset-left)); right: auto;
-  }
-  .fs-mode #reselectBtn {
-    top: calc(8px + env(safe-area-inset-top));
-    right: calc(8px + env(safe-area-inset-right));
+    right: calc(8px + env(safe-area-inset-right)); left: auto;
   }
   .fs-mode #speedBtn {
     top: calc(8px + env(safe-area-inset-top)); bottom: auto;
     right: calc(48px + env(safe-area-inset-right));
   }
+  .fs-mode #reselectBtn {
+    top: calc(8px + env(safe-area-inset-top));
+    right: calc(88px + env(safe-area-inset-right));
+  }
 
-  /* 全画面表示中、動画の下端に重ねるコントロール一式のパネル */
+  /* 全画面表示中、動画の下端に「重ねる」コントロール一式のパネル。
+     position:absoluteで動画の上に浮かせているだけなので、パネルの高さは
+     動画自体の表示サイズに一切影響しない。 */
   #fsControlPanel {
-    width: 100%; flex-shrink: 0;
-    max-height: 58vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
-    background: linear-gradient(to top, rgba(10,12,16,.97) 60%, rgba(10,12,16,.85) 88%, rgba(10,12,16,0));
+    position: absolute; left: 0; right: 0; bottom: 0;
+    max-height: 64vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: linear-gradient(to top, rgba(8,10,14,.96) 65%, rgba(8,10,14,.82) 90%, rgba(8,10,14,0));
     padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     border-radius: 16px 16px 0 0;
   }
