@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-08-31 17:33 JST
+     最終更新日時: 2026-09-01 10:45 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -105,6 +105,15 @@
        ならないようクランプ）。
      ・動画の先頭／終端に近すぎて5秒分の余地が取れない場合のみ、
        従来どおりトーストで指定できない旨を知らせる。
+
+     2026-08-31 (UI調整): ユーザーからのフィードバックを受けて調整。
+     ・動画プレビューをカードの内側パディング分だけ外側にはみ出させ、
+       カード幅いっぱいまで大きく表示されるようにした（動画に重ねている
+       アイコンボタンやバッジの位置は変更なし）。
+     ・「開始/終了位置へ移動」ボタン（◀1秒/再生/1秒▶の行の両端）の矢印
+       アイコンを、「この瞬間を開始/終了に」ボタンと同じ旗アイコンに統一。
+     ・1秒送り/戻しに加えて、10秒送り/戻しボタンを新設（1秒の行の下に、
+       少し控えめな見た目の行として追加）。
      ============================================================ -->
 <style>
   :root {
@@ -180,11 +189,12 @@
   .save-row .btn { font-size: 12px; padding: 12px 4px; white-space: nowrap; }
 
   video.preview {
-    width: 100%; border-radius: 12px; background: #000; display: block;
-    max-height: 46vh; object-fit: contain;
+    width: 100%; border-radius: 14px 14px 10px 10px; background: #000; display: block;
+    max-height: 48vh; object-fit: contain;
   }
 
-  .video-wrap { position: relative; }
+  /* カードの内側パディング分だけ外側にはみ出させ、動画をカード幅いっぱいに大きく見せる */
+  .video-wrap { position: relative; margin: -14px -14px 0 -14px; }
   .range-badge {
     position: absolute; top: 10px; left: 10px;
     display: none; align-items: center; gap: 5px;
@@ -283,6 +293,10 @@
   }
   .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
   .icon-btn-outline-end { background: var(--card-2); border: 1.5px solid var(--orange); color: var(--orange); }
+
+  /* 10秒送り/戻し（1秒送り/戻しの行の下に、少し控えめに表示） */
+  .step-row-10 { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .step-row-10 .btn { font-size: 12px; padding: 10px 2px; white-space: nowrap; }
 
   /* 開始/終了に設定するボタンの行（1秒送り等とは別の行） */
   .dur-line { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 12px; }
@@ -431,14 +445,20 @@
           <!-- 1秒送り/戻し・再生。両端に「開始/終了位置へ移動」アイコンを統合 -->
           <div class="step-row">
             <button type="button" class="icon-btn icon-btn-outline-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
             </button>
             <button class="btn secondary" id="stepBackBtn">◀ 1秒</button>
             <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
             <button class="btn secondary" id="stepFwdBtn">1秒 ▶</button>
             <button type="button" class="icon-btn icon-btn-outline-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
             </button>
+          </div>
+
+          <!-- 10秒送り/戻し（1秒より粗い移動用） -->
+          <div class="step-row-10">
+            <button class="btn secondary" id="step10BackBtn">◀◀ 10秒</button>
+            <button class="btn secondary" id="step10FwdBtn">10秒 ▶▶</button>
           </div>
 
           <!-- シークバー: つまみの上の時刻バッジ + 太めのトリムバー -->
@@ -1092,6 +1112,12 @@
   });
   $("stepFwdBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 1);
+  });
+  $("step10BackBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 10);
+  });
+  $("step10FwdBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 10);
   });
 
   /* =========================================================
