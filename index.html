@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-02 06:40 JST
+     最終更新日時: 2026-09-02 06:55 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -422,6 +422,28 @@
        #fsControlPanel #fsSpeedBtn.active-toggle（IDセレクタ）に差し替えて、
        #fsControlPanel .btn.secondaryの背景指定に負けないようにした
        （これまでと同様のCSS詳細度対策）。
+
+     2026-09-02 (改善): 再生ボタン行を行全体の真ん中に見せるよう微調整（v12）。
+     ・v11の.step-row-main（flex:1 + justify-content:center）方式は、行の中で
+       step-row-mainだけを中央ぞろいにする方式だったため、右側にfsSpeedBtnの
+       幅がある分だけstep-row-mainの箱自体が左に寄り、結果として再生ボタン群が
+       画面（行）全体で見ると心持ち左寄りに見えてしまっていた（ユーザーからの
+       指摘：「再生ボタンが中央にくるようにできませんか？倍速ボタンの反対側に
+       見えない＆反応しないパディングの役割を果たすボタンを追加するとかしても
+       いいと思ってます」）。
+     ・ユーザー提案のとおり、fsSpeedBtnと同じ見た目・同じ幅の非表示ダミー要素
+       #stepRowSpacer（テキストは同じ「倍速」、divで実装）を.step-row-mainの
+       左側（.step-rowの先頭）に追加した。visibility:hidden（displayではなく）
+       でレイアウト上の幅だけ確保しつつ見た目を消し、pointer-events:none と
+       aria-hidden="true" でタップ・スクリーンリーダー双方から見えない存在に
+       している。これにより.step-rowの子要素が
+       [spacer(倍速幅)] - [.step-row-main(flex:1, 中央ぞろい)] - [fsSpeedBtn(倍速幅)]
+       という左右対称の3分割になり、中央の.step-row-mainの箱自体が行の真ん中に
+       来るため、中の再生ボタン群も見た目どおり画面中央に来るようになった。
+     ・通常表示ではspacerも.fs-only（display:none !important）で完全に
+       レイアウトから除外されるため、影響は一切ない。DOM再配置ロジック
+       （FS_MOVABLES・enterFsOverlay()）・stepRowElの取得方法にも変更なし。
+       構文チェック・重複id・$()参照の整合性を再確認済み。
      ============================================================ -->
 <style>
   :root {
@@ -663,6 +685,14 @@
      4ボタン行を表示する（.fs-onlyの!importantをID詳細度で上書き） */
   #fsControlPanel .fs-only { display: flex !important; }
 
+  /* #stepRowSpacer: 再生ボタン群（.step-row-main）を行全体の真ん中に見せるための
+     見えない・押せないダミー要素。fsSpeedBtnと全く同じ見た目（テキスト「倍速」・
+     同じクラス）で幅を一致させた上で、visibility:hiddenで見た目だけ消し、
+     pointer-events:noneでタップも無効化している（display:noneではなく
+     visibility:hiddenなので、レイアウト上の幅はそのまま確保され続ける）。 */
+  #fsControlPanel #stepRowSpacer {
+    visibility: hidden; pointer-events: none;
+  }
   /* 全画面表示中のボタン・トリムバー類を半透明化し、動画がうっすら透けて
      見えるようにする（IDセレクタでの上書きなので、通常時の見た目には影響しない）。
      ぼかし(backdrop-filter)は大きなボタンにかけると「曇りガラスの塊」のように
@@ -991,7 +1021,14 @@
                  通常表示ではstep-row-mainがflex:1で伸びるので見た目は従来通り、
                  全画面表示では#fsControlPanel .step-row-mainがjustify-content:center
                  になり、fsSpeedBtnだけが行の右端に独立して残る
-                 （「再生ボタンらは中央ぞろい、倍速ボタンは右端に配置」との要望）。 -->
+                 （「再生ボタンらは中央ぞろい、倍速ボタンは右端に配置」との要望）。
+                 なお.step-row-main自体を行の中でjustify-content:centerしても、
+                 右端にfsSpeedBtn分の幅が食い込む分だけ中心が左へずれてしまうため、
+                 反対側（左端）にfsSpeedBtnと同じ見た目・同じ幅の非表示スペーサー
+                 （#stepRowSpacer）を置き、左右の余白を釣り合わせることで
+                 再生ボタン群を画面（行）全体の真ん中に見せている
+                 （見えない・押せないダミーボタンで幅を合わせる方式）。 -->
+            <div class="btn secondary fs-speed-btn fs-only" id="stepRowSpacer" aria-hidden="true">倍速</div>
             <div class="step-row-main">
               <button type="button" class="icon-btn icon-btn-outline-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
