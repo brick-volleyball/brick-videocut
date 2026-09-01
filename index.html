@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 11:58 JST
+     最終更新日時: 2026-09-01 13:59 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -131,6 +131,21 @@
        何をしたか分かるようにしている。
      ・動画を左右になぞっている間、なぞっている位置の再生時刻（例: 1:23.4）を
        動画中央に表示するようにした。指を離すと0.6秒表示してからフェードアウトする。
+
+     2026-09-01 (機能追加): 全画面表示モードを追加。
+     ・動画プレビューの左下に全画面表示の切り替えアイコン（拡大⇄縮小）を新設。
+     ・ONにすると、ヘッダーと下部タブバー（クリップ作成/保存先設定/保存済み一覧）を
+       非表示にし、空いた分クリップ作成画面が画面いっぱいに広がる。動画自体の
+       最大高さも拡大（46vh→62vh）。
+     ・再生/1秒10秒送り戻し/開始・終了位置へ移動の行（stepRow）は、全画面表示中は
+       DOM上で動画（video-wrap）の中へ一時的に移動させ、動画の下端に重なる半透明の
+       帯として表示する（「ボタンは動画の上に重なる形で操作する」という要望どおり）。
+       終了時は元の位置（DOM上の親・直後の兄弟要素）へ正確に戻す。トリムバー・
+       「この瞬間を開始/終了に」・保存ボタンは従来どおり動画のすぐ下に表示したまま。
+     ・stepRowの移動はDOMノードの再配置（appendChild）のみで行っており、ボタンに
+       登録済みのイベントリスナーはそのまま保持される（再登録は不要）。
+     ・再配置ロジックはjsdomを使ったDOMテストで、全画面のON/OFFを複数回繰り返しても
+       元の位置に正確に戻ることを確認済み。
      ============================================================ -->
 <style>
   :root {
@@ -246,7 +261,35 @@
     top: 8px; right: 8px;
   }
   .overlay-icon-btn-bottom { top: auto; bottom: 8px; }
+  .overlay-icon-btn-left { left: 8px; right: auto; }
   .overlay-icon-btn.active-toggle { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* 全画面表示トグル（アイコンは通常時=拡大、全画面時=縮小に自動で切り替わる） */
+  #fullscreenBtn .ic-compress { display: none; }
+  .fs-mode #fullscreenBtn .ic-expand { display: none; }
+  .fs-mode #fullscreenBtn .ic-compress { display: block; }
+
+  /* ===== 全画面表示モード =====
+     ヘッダー／下部タブバーを隠し、main（クリップ作成画面）が画面いっぱいに広がるようにする。
+     動画自体も大きく表示し、再生/1秒10秒送り戻し/開始・終了へ移動の行は動画の下端に
+     半透明の帯として重ねて表示する（トリムバー・この瞬間を開始/終了に・保存ボタンは
+     動画のすぐ下に、これまでどおりの見やすい形で表示したまま）。 */
+  .fs-mode header,
+  .fs-mode nav.tabbar {
+    display: none;
+  }
+  .fs-mode main {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .fs-mode video.preview {
+    max-height: 62vh;
+  }
+  .video-wrap .step-row.step-row-overlay {
+    position: absolute; left: 0; right: 0; bottom: 0; margin: 0;
+    padding: 10px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, rgba(0,0,0,.8), rgba(0,0,0,0));
+    border-radius: 0 0 10px 10px; z-index: 5;
+  }
 
   /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
   .seek-block { position: relative; margin-top: 20px; height: 62px; }
@@ -461,7 +504,7 @@
 
       <div id="clipEditor" style="display:none;">
         <div class="card">
-          <div class="video-wrap">
+          <div class="video-wrap" id="videoWrap">
             <video id="previewVideo" class="preview" playsinline></video>
             <div class="range-badge" id="rangeBadge">✂ ここが切り取り範囲です</div>
             <div class="scrub-badge" id="scrubBadge"></div>
@@ -470,6 +513,10 @@
             </button>
             <button type="button" class="overlay-icon-btn overlay-icon-btn-bottom" id="speedBtn" title="2倍速" aria-label="2倍速">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 4 13 12 5 20"/><polyline points="12 4 20 12 12 20"/></svg>
+            </button>
+            <button type="button" class="overlay-icon-btn overlay-icon-btn-bottom overlay-icon-btn-left" id="fullscreenBtn" title="全画面表示" aria-label="全画面表示">
+              <svg class="ic-expand" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+              <svg class="ic-compress" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v3a2 2 0 0 1-2 2H4"/><path d="M15 3v3a2 2 0 0 0 2 2h3"/><path d="M9 21v-3a2 2 0 0 0-2-2H4"/><path d="M15 21v-3a2 2 0 0 1 2-2h3"/></svg>
             </button>
           </div>
 
@@ -1142,6 +1189,44 @@
     previewVideo.playbackRate = is2xSpeed ? 2 : 1;
     // ON/OFFは動画プレビュー右下の丸いアイコンボタンのハイライト(active-toggle)で示す
     speedBtn.classList.toggle("active-toggle", is2xSpeed);
+  });
+
+  /* =========================================================
+   *  全画面表示モード
+   *  ヘッダー／下部タブバーを隠して動画を大きく表示し、再生/1秒10秒送り戻し/
+   *  開始・終了へ移動の行（stepRow）は動画の下端に重ねて表示する。
+   *  （トリムバー・この瞬間を開始/終了に・保存ボタンは動画のすぐ下に据え置き）
+   * ======================================================= */
+  const fullscreenBtn = $("fullscreenBtn");
+  const videoWrap = $("videoWrap");
+  const stepRowEl = document.querySelector(".step-row");
+  // stepRowを一時的に動画の中へ移動させるので、元の位置（親と直後の兄弟要素）を覚えておき、
+  // 全画面表示を終了するときに正確に同じ場所へ戻せるようにする
+  const stepRowHome = { parent: stepRowEl.parentNode, next: stepRowEl.nextSibling };
+  let isFullscreenMode = false;
+
+  function restoreStepRow() {
+    stepRowEl.classList.remove("step-row-overlay");
+    if (stepRowHome.next && stepRowHome.next.parentNode === stepRowHome.parent) {
+      stepRowHome.parent.insertBefore(stepRowEl, stepRowHome.next);
+    } else {
+      stepRowHome.parent.appendChild(stepRowEl);
+    }
+  }
+
+  fullscreenBtn.addEventListener("click", () => {
+    isFullscreenMode = !isFullscreenMode;
+    document.body.classList.toggle("fs-mode", isFullscreenMode);
+    const label = isFullscreenMode ? "全画面表示を終了" : "全画面表示";
+    fullscreenBtn.title = label;
+    fullscreenBtn.setAttribute("aria-label", label);
+
+    if (isFullscreenMode) {
+      videoWrap.appendChild(stepRowEl);
+      stepRowEl.classList.add("step-row-overlay");
+    } else {
+      restoreStepRow();
+    }
   });
 
   /* =========================================================
