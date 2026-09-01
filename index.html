@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 18:41 JST
+     最終更新日時: 2026-09-01 19:07 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -302,6 +302,59 @@
        ようになった。
      ・構文チェック・id参照整合性を再確認済み（DOM再配置ロジック自体は
        変更していないため、v7で実施したjsdomテストは有効）。
+
+     2026-09-01 (改善): 全画面表示のボタンをさらに調整（v8）。
+     ・実機スクリーンショットでの「いい感じになってきた」というフィードバックに
+       続き、4点の追加要望があった：(1) 再生ボタンの行を中央に集めてほしい、
+       (2) 開始位置行のボタンのオン/オフが分かりづらい、(3) 開始位置/終了位置は
+       押したら秒数を表示してほしい（押した意味が分かるように）、(4) 下部ボタン
+       全体をもう少しコンパクトに。
+     ・(1) 再生/送り戻し行（stepRow）は、これまで#fsControlPanel内で
+       justify-content:space-betweenにより旗ボタンが画面の両端まで離れて
+       散らばって見えていた。centerに変更し、ボタン同士の間隔(gap)も指定して、
+       画面下部の中央にひとまとまりで集まるようにした。
+     ・(2) 原因を調査したところ、CSSの詳細度の不具合を発見：A-BループボタンON時に
+       付与される.active-toggleクラスの背景色（.btn.outline.active-toggle、
+       クラス3つ）が、#fsControlPanel .btn.outline（ID+クラス2つ）という別の
+       上書きルールに詳細度で負けて常に打ち消されてしまっており、ONにしても
+       見た目が変わっていなかった。#fsControlPanel .btn.outline.active-toggle
+       （ID+クラス3つ）を追加してこの上書きルールより優先させ、確実にハイライト
+       されるようにした。あわせて、色の変化だけに頼らずJS側でボタンの文言自体も
+       「A-Bループ」⇄「■ ループ再生中」で切り替えるようにし（setAbLoop内）、
+       半透明パネル上でも一目でON/OFFが分かるようにした。
+     ・(3) 「開始位置」「終了位置」ボタンに、ラベルの下へ現在の開始/終了時刻
+       （例: 0:12.3）を表示する2段構成にした（.fs-mark-btn/.fs-mark-time）。
+       この時刻表示は、開始/終了時刻が変わるたびに必ず呼ばれる既存の
+       updateLabels()関数に相乗りして更新しているため、このボタンを押した
+       時だけでなく、通常表示側でハンドルをドラッグして調整した場合等も含め、
+       常に実際の値と同期している。
+     ・(4) #fsControlPanelの上下パディング・各行の上マージン・A-Bループ行の
+       ボタンパディング・アイコンボタンのサイズ（38px→32px）等をそれぞれ
+       一段階ずつ縮小し、ボタン全体がより小さく・下寄りにまとまるようにした。
+     ・DOM構造・再配置ロジック自体は変更していないため、FS_MOVABLESに関する
+       jsdomテストは引き続き有効。構文チェック・id参照整合性を再確認済み。
+       実機での見え方（特にA-Bループのハイライト・コンパクトさ）は次回確認予定。
+
+     2026-09-01 (機能追加): 全画面表示にした際、画面の向きを横向きに固定する
+     機能を追加（v9）。
+     ・ユーザーから「全画面モードにした際は画面を横向きに切り替えてほしい」との
+       要望があり追加。
+     ・Screen Orientation API（`screen.orientation.lock("landscape")`）を用いて、
+       全画面ボタンを押したタイミングで画面の向きを横向き（landscape、左右どちら
+       向きでも可）に固定するようにした。全画面表示を終了する（ボタンを押す／
+       Androidの「戻る」操作でネイティブ全画面が解除される、いずれの経路でも）と
+       `unlock()` を呼び、通常どおり端末の向きに追従する状態へ戻す
+       （`applyFsModeOff()` 内に集約）。
+     ・画面の向きロックは多くの環境で「文書が全画面表示中であること」が条件になる
+       ため、`requestElementFullscreen()`（ネイティブ全画面表示）の成否に関わらず
+       （成功後・失敗後どちらの経路でも）ベストエフォートで `lockLandscapeOrientation()`
+       を試すようにしている。iOS Safari等、Screen Orientation APIの
+       `lock`/`unlock` 自体が存在しない環境では何もせず無視して続行するため、
+       全画面表示（position:fixedによる疑似全画面含む）自体には影響しない。
+     ・DOM再配置ロジック・レイアウトCSSには変更を加えていないため、既存のjsdom
+       テストはそのまま有効。構文チェック・id参照整合性を再確認済み。実機では
+       ブラウザ・OSごとに対応状況が異なりうるため（特にiOS Safariでは非対応）、
+       Android実機での挙動を次回確認予定。
      ============================================================ -->
 <style>
   :root {
@@ -378,6 +431,11 @@
   .btn.outline.outline-orange { border-color: var(--orange); color: var(--orange); }
   .btn.outline.outline-accent { border-color: var(--accent); color: var(--accent); }
   .btn.outline.active-toggle { background: rgba(47,111,237,.28); border-color: var(--accent); color: #fff; }
+
+  /* 開始位置/終了位置ボタン：ラベルの下に現在の開始/終了時刻を表示し、
+     押した結果（何秒に設定されたか）がその場で分かるようにする */
+  .fs-mark-btn { flex-direction: column; gap: 2px; line-height: 1.05; }
+  .fs-mark-time { font-size: 10px; font-weight: 600; opacity: .85; font-variant-numeric: tabular-nums; }
 
   /* 全画面表示（#fsControlPanel）でのみ表示する要素。通常表示では常に非表示。
      .row（display:flexをつける、後方で定義される汎用クラス）等、詳細度が同じ
@@ -491,19 +549,19 @@
     position: absolute; left: 0; right: 0; bottom: 0;
     max-height: 64vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
     background: linear-gradient(to top, rgba(0,0,0,.28) 0%, rgba(0,0,0,.1) 30%, rgba(0,0,0,0) 55%);
-    padding: 8px 14px calc(10px + env(safe-area-inset-bottom));
+    padding: 6px 14px calc(8px + env(safe-area-inset-bottom));
     border-radius: 16px 16px 0 0;
   }
   /* ボタン類をできるだけ下に寄せてコンパクトにまとめる（各要素間の余白を
-     通常表示より詰め、動画がより広く見えるようにする） */
+     通常表示よりさらに詰め、動画がより広く見えるようにする） */
   #fsControlPanel .card {
-    background: transparent; border: none; padding: 0; margin: 8px 0 0;
+    background: transparent; border: none; padding: 0; margin: 6px 0 0;
   }
   #fsControlPanel .card:first-child { margin-top: 0; }
   #fsControlPanel .card h2 { display: none; } /* 「保存」ラベルは全画面時は不要 */
-  #fsControlPanel .step-row { margin-top: 2px; }
-  #fsControlPanel .seek-block { margin-top: 8px; height: 16px; }
-  #fsControlPanel .ab-row { margin-top: 8px; }
+  #fsControlPanel .step-row { margin-top: 0; }
+  #fsControlPanel .seek-block { margin-top: 6px; height: 14px; }
+  #fsControlPanel .ab-row { margin-top: 6px; }
   #fsControlPanel .time-badge { display: none; } /* 帯を薄い線に簡略化する分、数値バッジは省略 */
 
   /* 全画面表示（#fsControlPanel）でのみ「開始位置/終了位置/A-Bループ/解除」の
@@ -533,8 +591,19 @@
   #fsControlPanel .zoom-reset-pill { background: rgba(47,111,237,.22); }
   #fsControlPanel .warn-box { background: rgba(217,165,58,.16); }
 
+  /* A-Bループのオン/オフを分かりやすくする。
+     従来は #fsControlPanel .btn.outline（ID+2クラス）の方が .btn.outline.active-toggle
+     （クラスのみ・3クラス）より詳細度が高く、ONにしても背景色の変化が上書きされて
+     消えてしまっていた（オン/オフが分かりづらい原因）。IDセレクタ側でも
+     active-toggle専用の上書きを用意し、確実にハイライトされるようにした
+     （ボタンのテキスト自体もJS側でON/OFFで切り替えている＝setAbLoop参照） */
+  #fsControlPanel .btn.outline.active-toggle {
+    background: rgba(47,111,237,.6); border-color: var(--accent); color: #fff;
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.35) inset, 0 1px 6px rgba(0,0,0,.55);
+  }
+
   /* A-Bループ/解除の4ボタン行は、限られた幅に4つ収めるためやや小さめに */
-  #fsControlPanel .ab-row .btn { font-size: 11.5px; padding: 9px 4px; }
+  #fsControlPanel .ab-row .btn { font-size: 11px; padding: 6px 4px 5px; }
 
   /* トリムバーは「帯」ではなく「線」に近い、できるだけ主張を抑えた見た目にする。
      つまみ・再生位置線・開始終了の可動域(緑〜オレンジのグラデーション帯)は
@@ -552,11 +621,14 @@
   /* 再生ボタンは行いっぱいに伸びる巨大なピルにせず、他のアイコンボタンと
      同程度の大きさに収めて、参考レイアウトのように行の中に均等に浮かべる
      （通常表示のstep-rowはflex:1で play ボタンが伸びる仕様のままなので、
-     ここは #fsControlPanel 限定の上書き） */
-  #fsControlPanel .step-row { justify-content: space-between; }
+     ここは #fsControlPanel 限定の上書き）。
+     行全体は画面幅いっぱいに広げず中央に寄せてまとめる（space-between だと
+     両端の旗ボタンが画面端まで離れてしまい、ボタン群が散らばって見えるため） */
+  #fsControlPanel .step-row { justify-content: center; gap: 10px; }
   #fsControlPanel .step-row .btn {
-    flex: 0 0 auto; width: auto; padding: 8px 18px; font-size: 13px;
+    flex: 0 0 auto; width: auto; padding: 6px 14px; font-size: 12.5px;
   }
+  #fsControlPanel .icon-btn { width: 32px; height: 32px; border-radius: 9px; }
 
   /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
   .seek-block { position: relative; margin-top: 20px; height: 62px; }
@@ -881,8 +953,12 @@
                クリック委譲。A-Bループ/解除は今回新規追加したプレビュー内ループ再生機能）。
                通常表示では .fs-only により非表示、#fsControlPanel 内でのみ表示される。 -->
           <div class="row ab-row fs-only" id="fsAbRow">
-            <button type="button" class="btn outline outline-green" id="fsMarkStartBtn">開始位置</button>
-            <button type="button" class="btn outline outline-orange" id="fsMarkEndBtn">終了位置</button>
+            <button type="button" class="btn outline outline-green fs-mark-btn" id="fsMarkStartBtn">
+              <span class="fs-mark-label">開始位置</span><span class="fs-mark-time" id="fsMarkStartTime">0:00.0</span>
+            </button>
+            <button type="button" class="btn outline outline-orange fs-mark-btn" id="fsMarkEndBtn">
+              <span class="fs-mark-label">終了位置</span><span class="fs-mark-time" id="fsMarkEndTime">0:00.0</span>
+            </button>
             <button type="button" class="btn outline outline-accent" id="abLoopBtn">A-Bループ</button>
             <button type="button" class="btn outline" id="abClearBtn">解除</button>
           </div>
@@ -1295,6 +1371,13 @@
     startBadge.textContent = formatTime(state.startTime);
     endBadge.textContent = formatTime(state.endTime);
     $("clipDurLabel").textContent = Math.max(0, state.endTime - state.startTime).toFixed(1) + "秒";
+    // 全画面表示の「開始位置/終了位置」ボタン（#fsAbRow）のラベル下にも同じ時刻を表示する。
+    // state.startTime/endTimeが変わるたびに必ず呼ばれるこの関数に相乗りすることで、
+    // ボタンを押した結果（何秒に設定されたか）がその場で分かるようにしている
+    const fsStartTimeEl = $("fsMarkStartTime");
+    const fsEndTimeEl = $("fsMarkEndTime");
+    if (fsStartTimeEl) fsStartTimeEl.textContent = formatTime(state.startTime);
+    if (fsEndTimeEl) fsEndTimeEl.textContent = formatTime(state.endTime);
     renderRangeUI();
     updateRangeBadge();
   }
@@ -1585,6 +1668,30 @@
     if (fn) { try { fn.call(document); } catch (e) { /* 無視 */ } }
   }
 
+  // Screen Orientation API（対応環境のみ。iOS Safari等、非対応のブラウザでは
+  // 何もせず無視する＝全画面表示自体は従来どおり成立する）。
+  // 画面の向きロックは多くの環境で「全画面表示中であること」が条件になるため、
+  // requestElementFullscreen() の成否に関わらず（成功後／失敗後どちらでも）
+  // ベストエフォートで試すようにしている。
+  function lockLandscapeOrientation() {
+    const orientation = screen.orientation || screen.msOrientation || screen.mozOrientation;
+    if (!orientation || typeof orientation.lock !== "function") {
+      return Promise.reject(new Error("screen orientation lock not supported"));
+    }
+    try {
+      const p = orientation.lock("landscape");
+      return (p && typeof p.then === "function") ? p : Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+  function unlockOrientation() {
+    const orientation = screen.orientation || screen.msOrientation || screen.mozOrientation;
+    if (orientation && typeof orientation.unlock === "function") {
+      try { orientation.unlock(); } catch (e) { /* 無視 */ }
+    }
+  }
+
   function applyFsModeOn() {
     document.body.classList.add("fs-mode");
     fullscreenBtn.title = "全画面表示を終了";
@@ -1599,6 +1706,9 @@
     // A-Bループのボタンは全画面表示専用のため、通常表示に戻ると操作できなくなる。
     // ループが有効なまま気づかず残ることがないよう、ここで必ず解除しておく
     if (typeof setAbLoop === "function") setAbLoop(false);
+    // 全画面表示中に固定した画面の向きを解除し、端末の向きに合わせて
+    // 自由に回転できる状態に戻す（非対応環境では何もしない）
+    unlockOrientation();
   }
 
   fullscreenBtn.addEventListener("click", () => {
@@ -1606,8 +1716,15 @@
       isFullscreenMode = true;
       applyFsModeOn();
       // 対応環境ではブラウザのアドレスバー等も隠す本物の全画面表示を試みる。
-      // 非対応・失敗時も position:fixed 表示は既に適用済みなので見た目は崩れない
-      requestElementFullscreen(videoWrap).catch(() => { /* 疑似全画面のまま続行 */ });
+      // 非対応・失敗時も position:fixed 表示は既に適用済みなので見た目は崩れない。
+      // 続けて横向きに固定する（「全画面にしたら横向きにしてほしい」との要望）。
+      // 全画面表示の成否にかかわらずベストエフォートで試すため、
+      // requestElementFullscreenの結果を問わず.then/.catchで両方から
+      // lockLandscapeOrientation()を呼ぶ形にしている。
+      requestElementFullscreen(videoWrap)
+        .catch(() => { /* 疑似全画面のまま続行 */ })
+        .then(() => lockLandscapeOrientation())
+        .catch(() => { /* 画面の向き固定は非対応環境（iOS Safari等）では無視して続行 */ });
     } else {
       isFullscreenMode = false;
       applyFsModeOff();
@@ -1645,6 +1762,9 @@
   function setAbLoop(enabled) {
     abLoopEnabled = enabled;
     abLoopBtn.classList.toggle("active-toggle", enabled);
+    // 背景色のハイライトだけでなく、ラベルの文言自体もON/OFFで変えることで、
+    // 半透明パネル上でも一目でループ中かどうか分かるようにする
+    abLoopBtn.textContent = enabled ? "■ ループ再生中" : "A-Bループ";
   }
 
   abLoopBtn.addEventListener("click", () => {
