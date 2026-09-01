@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 16:35 JST
+     最終更新日時: 2026-09-01 17:31 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -239,6 +239,43 @@
      ・今回もCSSの見た目調整のみで、全画面のON/OFFロジック・DOM再配置・
        シークバーの全画面判定（v5）自体は変更していない。構文チェック・
        id参照整合性を再確認済み。
+
+     2026-09-01 (機能追加・修正): 全画面表示のボタン配置をさらに調整し、
+     A-Bループ再生機能を追加（v6→v7）。
+     ・「ボタン類が画面下部に集まっていない」「シークバーが帯っぽい」「保存
+       ラベルが不要」「開始/終了位置・A-Bリピート・解除ボタンを保存ボタンの
+       上に追加してほしい」「全画面オフの横向き時にタブバー等が邪魔」という
+       5点のフィードバックを受けて対応。
+     ・#fsControlPanel 内の各行の余白・フォントサイズをさらに詰め、パネル
+       全体がより下に寄って画面下部にコンパクトに収まるように調整した
+       （パネルの最大高さ・行間マージンを縮小）。
+     ・トリムバー（#fsControlPanel内）を帯状（7px）から、より線に近い見た目
+       （高さそのものは操作性のため大きく変えていないが、背景をほぼ透明にし
+       つまみ・再生位置線を細く）に調整。時刻バッジ・ミニマップは全画面時は
+       非表示のまま。
+     ・#fsControlPanel 内の保存カードの見出し（h2「保存」ラベル）を非表示化
+       （display:none）し、ボタンだけが並ぶ見た目にした。
+     ・新規に「開始位置／終了位置／A-Bループ／解除」の4ボタン行（#fsAbRow）
+       を追加し、保存ボタンの行の直上に配置。開始位置/終了位置ボタンは既存の
+       markStartBtn/markEndBtn（5秒自動調整ロジック込み）へのクリック委譲、
+       A-Bループ/解除は今回新規実装したプレビュー内ループ再生機能
+       （state.startTime～state.endTime を previewVideo の timeupdate で監視し、
+       endTime付近まで再生されたらstartTimeへシークして再生を再継続する）。
+       クリップ抽出に使う既存のstartTime/endTimeをそのまま流用しているため、
+       別途A/Bマーカーの状態を持つ必要がない。全画面表示を終了すると、UIごと
+       非表示になり操作できなくなるため、終了時に自動的にループを解除する
+       処理も追加した（applyFsModeOff内）。この行は通常表示では.fs-only
+       により非表示（#fsControlPanel内に移動して初めて表示される）。
+     ・FS_MOVABLESが3要素→4要素（fsAbRowElを追加）になったため、jsdomによる
+       DOM再配置round-tripテストを新しい構成向けに書き直して再実行し、全画面
+       のON/OFFを複数回繰り返しても各要素が元の親・直後の兄弟要素へ正確に
+       戻ることを再確認済み。
+     ・通常表示（全画面でない）時に、スマホを横向きにした際タブバー・ヘッダー
+       がクリップ作成画面の操作領域を圧迫して邪魔になる問題に対応するため、
+       「横向き かつ 画面高が低い（max-height:500px）」場合専用のメディア
+       クエリを追加し、通常表示時のみヘッダー・タブバーを縮小表示するように
+       した（全画面表示時のレイアウトには影響なし。全画面時はヘッダー・
+       タブバー自体がそもそも非表示のため）。
      ============================================================ -->
 <style>
   :root {
@@ -307,6 +344,17 @@
   .btn.secondary.active-toggle { background: var(--accent); color: white; border-color: var(--accent); }
   .btn:disabled { opacity: .4; pointer-events: none; }
   .btn.small { padding: 9px 12px; font-size: 13px; width: auto; }
+
+  /* アウトライン系ボタン（縁取りのみ・塗りつぶしなし）。全画面表示中の
+     「開始位置/終了位置/A-Bループ/解除」の4ボタン行で使用 */
+  .btn.outline { background: transparent; border: 1.5px solid var(--border); color: var(--text); }
+  .btn.outline.outline-green { border-color: var(--green); color: var(--green); }
+  .btn.outline.outline-orange { border-color: var(--orange); color: var(--orange); }
+  .btn.outline.outline-accent { border-color: var(--accent); color: var(--accent); }
+  .btn.outline.active-toggle { background: rgba(47,111,237,.28); border-color: var(--accent); color: #fff; }
+
+  /* 全画面表示（#fsControlPanel）でのみ表示する要素。通常表示では常に非表示 */
+  .fs-only { display: none; }
 
   .row { display: flex; gap: 10px; }
   .row > * { flex: 1; }
@@ -415,14 +463,24 @@
     position: absolute; left: 0; right: 0; bottom: 0;
     max-height: 64vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
     background: linear-gradient(to top, rgba(0,0,0,.28) 0%, rgba(0,0,0,.1) 30%, rgba(0,0,0,0) 55%);
-    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    padding: 8px 14px calc(10px + env(safe-area-inset-bottom));
     border-radius: 16px 16px 0 0;
   }
+  /* ボタン類をできるだけ下に寄せてコンパクトにまとめる（各要素間の余白を
+     通常表示より詰め、動画がより広く見えるようにする） */
   #fsControlPanel .card {
-    background: transparent; border: none; padding: 0; margin: 14px 0 0;
+    background: transparent; border: none; padding: 0; margin: 8px 0 0;
   }
   #fsControlPanel .card:first-child { margin-top: 0; }
-  #fsControlPanel .seek-block { margin-top: 18px; }
+  #fsControlPanel .card h2 { display: none; } /* 「保存」ラベルは全画面時は不要 */
+  #fsControlPanel .step-row { margin-top: 2px; }
+  #fsControlPanel .seek-block { margin-top: 8px; height: 16px; }
+  #fsControlPanel .ab-row { margin-top: 8px; }
+  #fsControlPanel .time-badge { display: none; } /* 帯を薄い線に簡略化する分、数値バッジは省略 */
+
+  /* 全画面表示（#fsControlPanel）でのみ「開始位置/終了位置/A-Bループ/解除」の
+     4ボタン行を表示する */
+  #fsControlPanel .fs-only { display: flex; }
 
   /* 全画面表示中のボタン・トリムバー類を半透明化し、動画がうっすら透けて
      見えるようにする（IDセレクタでの上書きなので、通常時の見た目には影響しない）。
@@ -442,14 +500,26 @@
   #fsControlPanel .icon-btn-outline-end { background: rgba(20,22,28,.3); }
   #fsControlPanel .btn.green { background: rgba(47,143,78,.55); }
   #fsControlPanel .btn.orange { background: rgba(224,86,63,.55); }
-  #fsControlPanel .btn:not(.secondary):not(.green):not(.orange) { background: rgba(47,111,237,.55); }
+  #fsControlPanel .btn.outline { background: rgba(10,12,16,.35); }
+  #fsControlPanel .btn:not(.secondary):not(.green):not(.orange):not(.outline) { background: rgba(47,111,237,.55); }
   #fsControlPanel .zoom-reset-pill { background: rgba(47,111,237,.22); }
   #fsControlPanel .warn-box { background: rgba(217,165,58,.16); }
 
-  /* トリムバーは参考レイアウトのようにできるだけ主張を抑えた見た目にする。
+  /* A-Bループ/解除の4ボタン行は、限られた幅に4つ収めるためやや小さめに */
+  #fsControlPanel .ab-row .btn { font-size: 11.5px; padding: 9px 4px; }
+
+  /* トリムバーは「帯」ではなく「線」に近い、できるだけ主張を抑えた見た目にする。
      つまみ・再生位置線・開始終了の可動域(緑〜オレンジのグラデーション帯)は
-     そのまま残しつつ、バー自体の背景はごく薄く・縁取りなしにする */
-  #fsControlPanel .trim-bar { background: rgba(255,255,255,.08); border-color: transparent; box-shadow: none; }
+     そのまま残しつつ、バー自体をごく薄く・細く（40px→7px）した。
+     ミニマップ（ズーム時のみ表示される下端の帯）は全画面時は表示しない。 */
+  #fsControlPanel .trim-bar {
+    top: 4px; height: 7px; border-radius: 4px;
+    background: rgba(255,255,255,.1); border-color: transparent; box-shadow: none;
+  }
+  #fsControlPanel .trim-handle { bottom: 0; width: 6px; margin-left: -3px; border-radius: 3px; }
+  #fsControlPanel .trim-handle::after { height: 6px; }
+  #fsControlPanel .trim-playhead { bottom: 0; }
+  #fsControlPanel .trim-minimap { display: none !important; }
 
   /* 再生ボタンは行いっぱいに伸びる巨大なピルにせず、他のアイコンボタンと
      同程度の大きさに収めて、参考レイアウトのように行の中に均等に浮かべる
@@ -457,7 +527,7 @@
      ここは #fsControlPanel 限定の上書き） */
   #fsControlPanel .step-row { justify-content: space-between; }
   #fsControlPanel .step-row .btn {
-    flex: 0 0 auto; width: auto; padding: 10px 22px; font-size: 13px;
+    flex: 0 0 auto; width: auto; padding: 8px 18px; font-size: 13px;
   }
 
   /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
@@ -563,6 +633,24 @@
   }
   nav.tabbar button .ic { font-size: 20px; }
   nav.tabbar button.active { color: var(--accent); }
+
+  /* 全画面オフ時に横向き（ランドスケープ）で開くと、縦幅が狭くヘッダーと
+     下部タブバーが窮屈で邪魔になりやすいため、この条件下ではヘッダー・タブバーを
+     大きく縮小し、動画等の表示領域を少しでも広く確保する（全画面表示中は
+     header/nav.tabbarとも fs-mode で非表示になるため、ここは影響しない） */
+  @media (orientation: landscape) and (max-height: 500px) {
+    body:not(.fs-mode) header {
+      padding: 6px 14px 5px; padding-top: calc(6px + env(safe-area-inset-top));
+      gap: 8px;
+    }
+    body:not(.fs-mode) header .logo { width: 24px; height: 24px; border-radius: 7px; font-size: 11px; }
+    body:not(.fs-mode) header h1 { font-size: 12px; }
+    body:not(.fs-mode) header p { display: none; }
+    body:not(.fs-mode) nav.tabbar button { padding: 5px 4px 4px; font-size: 9px; gap: 1px; }
+    body:not(.fs-mode) nav.tabbar button .ic { font-size: 14px; }
+    body:not(.fs-mode) main { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
+    body:not(.fs-mode) video.preview { max-height: 30vh; }
+  }
 
   .folder-status {
     display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 10px;
@@ -754,6 +842,16 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
               この瞬間を終了に
             </button>
+          </div>
+
+          <!-- 全画面表示時のみ使う4ボタン行（開始位置/終了位置はmarkStartBtn/markEndBtnへの
+               クリック委譲。A-Bループ/解除は今回新規追加したプレビュー内ループ再生機能）。
+               通常表示では .fs-only により非表示、#fsControlPanel 内でのみ表示される。 -->
+          <div class="row ab-row fs-only" id="fsAbRow">
+            <button type="button" class="btn outline outline-green" id="fsMarkStartBtn">開始位置</button>
+            <button type="button" class="btn outline outline-orange" id="fsMarkEndBtn">終了位置</button>
+            <button type="button" class="btn outline outline-accent" id="abLoopBtn">A-Bループ</button>
+            <button type="button" class="btn outline" id="abClearBtn">解除</button>
           </div>
         </div>
 
@@ -1391,16 +1489,18 @@
   const videoWrap = $("videoWrap");
   const stepRowEl = document.querySelector(".step-row");
   const seekBlockEl = document.querySelector(".seek-block");
+  const fsAbRowEl = $("fsAbRow");
   const saveCardEl = $("saveNormalBtn").closest(".card");
 
   // 全画面表示中に動画の上へ移動させる要素一式。
-  // （ユーザー指定のレイアウトに合わせて、stepRow・seekBlock・保存カードの3つに
-  // 絞っている。zoomControls・durLine・markRow「この瞬間を開始/終了に」は全画面時は
-  // 表示せず、通常表示に戻ってから使う想定。全画面表示中はシークバーの操作も
-  // 「再生位置のシーク」のみに簡略化している＝下記のrangeWrapのpointerdown参照）
+  // （ユーザー指定のレイアウトに合わせて、stepRow・seekBlock・fsAbRow（開始位置/
+  // 終了位置/A-Bループ/解除）・保存カードの4つ。zoomControls・durLine・通常表示の
+  // markRow「この瞬間を開始/終了に」は全画面時は表示せず、通常表示に戻ってから
+  // 使う想定。全画面表示中はシークバーの操作も「再生位置のシーク」のみに
+  // 簡略化している＝下記のrangeWrapのpointerdown参照）
   // 元の位置（親要素・直後の兄弟要素）はページ読み込み時に一度だけ記録しておき、
   // 終了時にそれぞれ正確に同じ場所へ戻せるようにする
-  const FS_MOVABLES = [stepRowEl, seekBlockEl, saveCardEl];
+  const FS_MOVABLES = [stepRowEl, seekBlockEl, fsAbRowEl, saveCardEl];
   const fsHomes = FS_MOVABLES.map(function (el) {
     return { el: el, parent: el.parentNode, next: el.nextSibling };
   });
@@ -1463,6 +1563,9 @@
     fullscreenBtn.title = "全画面表示";
     fullscreenBtn.setAttribute("aria-label", "全画面表示");
     restoreFsOverlay();
+    // A-Bループのボタンは全画面表示専用のため、通常表示に戻ると操作できなくなる。
+    // ループが有効なまま気づかず残ることがないよう、ここで必ず解除しておく
+    if (typeof setAbLoop === "function") setAbLoop(false);
   }
 
   fullscreenBtn.addEventListener("click", () => {
@@ -1489,6 +1592,48 @@
   }
   document.addEventListener("fullscreenchange", onNativeFullscreenChange);
   document.addEventListener("webkitfullscreenchange", onNativeFullscreenChange);
+
+  /* =========================================================
+   *  全画面表示専用の「開始位置/終了位置/A-Bループ/解除」4ボタン行（fsAbRow）
+   *  ・開始位置/終了位置は、既存の markStartBtn/markEndBtn へのクリック委譲
+   *    （同じ判定ロジック・トースト表示をそのまま利用し、ロジックの重複を避ける）
+   *  ・A-Bループ/解除は今回新規追加した機能：現在の開始〜終了（state.startTime〜
+   *    state.endTime）の範囲だけをプレビュー内でループ再生する
+   * ======================================================= */
+  const fsMarkStartBtn = $("fsMarkStartBtn");
+  const fsMarkEndBtn = $("fsMarkEndBtn");
+  const abLoopBtn = $("abLoopBtn");
+  const abClearBtn = $("abClearBtn");
+  let abLoopEnabled = false;
+
+  fsMarkStartBtn.addEventListener("click", () => markStartBtn.click());
+  fsMarkEndBtn.addEventListener("click", () => markEndBtn.click());
+
+  function setAbLoop(enabled) {
+    abLoopEnabled = enabled;
+    abLoopBtn.classList.toggle("active-toggle", enabled);
+  }
+
+  abLoopBtn.addEventListener("click", () => {
+    if (abLoopEnabled) {
+      setAbLoop(false);
+      return;
+    }
+    if (state.duration <= 0 || state.endTime - state.startTime < 0.1) return;
+    setAbLoop(true);
+    previewVideo.currentTime = state.startTime;
+    previewVideo.play().catch(() => { /* 自動再生が拒否された場合は無視 */ });
+  });
+  abClearBtn.addEventListener("click", () => setAbLoop(false));
+
+  // 再生位置が終了位置に達したら、開始位置へ巻き戻して再生を続ける
+  previewVideo.addEventListener("timeupdate", () => {
+    if (!abLoopEnabled) return;
+    if (previewVideo.currentTime >= state.endTime - 0.05) {
+      previewVideo.currentTime = state.startTime;
+      previewVideo.play().catch(() => { /* 無視 */ });
+    }
+  });
 
   /* =========================================================
    *  動画に重ねる「操作フィードバック」バッジ
