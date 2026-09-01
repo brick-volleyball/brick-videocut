@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-01 16:06 JST
+     最終更新日時: 2026-09-01 16:35 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -217,6 +217,28 @@
        全画面表示中は、シークバーへのタッチを常に「再生位置のシーク」として扱い、
        開始/終了ハンドルのドラッグ微調整・2本指ピンチズームは無効化した
        （通常表示時の挙動・判定ロジックには一切変更なし）。
+
+     2026-09-01 (修正): 全画面表示の見た目を参考画像に近づける（v5→v6）。
+     ・「修正後のスクリーンショットが参考画像と全然違う」との指摘。原因は主に2つ：
+       (1) 再生ボタン（playPauseBtn）が通常表示と同じ flex:1 のままだったため、
+       行の中で伸びきって画面幅いっぱいの巨大なピルになっていた。
+       (2) ボタン・トリムバーに backdrop-filter のぼかしをかけていたため、
+       小さなアイコンには効いても、伸びきった再生ボタンやトリムバーでは
+       「曇りガラスの塊」のように見えてしまい、参考画像のような細いバー／
+       小さく浮かぶボタンという印象にならなかった。
+     ・#fsControlPanel 内に限定して、再生ボタンを flex:0（伸びない・内容に応じた
+       幅）に変更し、step-row を justify-content:space-between にして他の
+       アイコンボタンと同様に行内に均等配置。これで参考画像のように、行の中に
+       複数の小さいボタンが間隔を空けて並ぶ見た目になる。
+     ・backdrop-filterのぼかしは全廃し、各ボタンは薄い半透明の背景色＋影のみで
+       視認性を確保する方式に統一。トリムバーの背景も、つまみ・再生位置線・
+       開始終了の帯はそのまま残しつつ、バー自体はごく薄い(alpha .08)ほぼ透明な
+       見た目にし、太い帯というより細いラインに近い印象にした。
+     ・パネル自体の背景グラデーションもさらに薄く・短く（フェードが終わる高さを
+       72%→55%に）調整し、動画がより広い範囲で透けて見えるようにした。
+     ・今回もCSSの見た目調整のみで、全画面のON/OFFロジック・DOM再配置・
+       シークバーの全画面判定（v5）自体は変更していない。構文チェック・
+       id参照整合性を再確認済み。
      ============================================================ -->
 <style>
   :root {
@@ -386,14 +408,13 @@
   /* 全画面表示中、動画の下端に「重ねる」コントロール一式のパネル。
      position:absoluteで動画の上に浮かせているだけなので、パネルの高さは
      動画自体の表示サイズに一切影響しない。
-     パネル自体の背景はごく薄く（ほぼ透明）にとどめ、実際の視認性はボタン等
-     個々の要素を半透明化することで確保する（参考いただいた別アプリのように、
-     動画がボタンの隙間からもしっかり透けて見える見た目にするため。旧実装は
-     パネル背景がほぼ不透明で、動画の下側が丸ごと隠れて見えてしまっていた）。 */
+     パネル自体の背景はごく薄く（ほぼ透明）にとどめ、実際の視認性は各ボタンの
+     影で確保する（参考いただいた別アプリのように、動画がボタンの隙間から
+     しっかり透けて見える見た目にするため）。 */
   #fsControlPanel {
     position: absolute; left: 0; right: 0; bottom: 0;
     max-height: 64vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
-    background: linear-gradient(to top, rgba(0,0,0,.45) 0%, rgba(0,0,0,.22) 38%, rgba(0,0,0,0) 72%);
+    background: linear-gradient(to top, rgba(0,0,0,.28) 0%, rgba(0,0,0,.1) 30%, rgba(0,0,0,0) 55%);
     padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     border-radius: 16px 16px 0 0;
   }
@@ -404,27 +425,40 @@
   #fsControlPanel .seek-block { margin-top: 18px; }
 
   /* 全画面表示中のボタン・トリムバー類を半透明化し、動画がうっすら透けて
-     見えるようにする（IDセレクタでの上書きなので、通常時の見た目には影響しない） */
+     見えるようにする（IDセレクタでの上書きなので、通常時の見た目には影響しない）。
+     ぼかし(backdrop-filter)は大きなボタンにかけると「曇りガラスの塊」のように
+     見えて動画を隠してしまうため使わず、影と薄い背景色だけで視認性を確保する。 */
   #fsControlPanel .btn,
   #fsControlPanel .icon-btn,
-  #fsControlPanel .zoom-pan-btn,
-  #fsControlPanel .trim-bar {
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    box-shadow: 0 1px 8px rgba(0,0,0,.5);
+  #fsControlPanel .zoom-pan-btn {
+    box-shadow: 0 1px 6px rgba(0,0,0,.55);
   }
   #fsControlPanel .btn.secondary,
   #fsControlPanel .icon-btn-step,
   #fsControlPanel .zoom-pan-btn {
-    background: rgba(31,35,44,.5); border-color: rgba(255,255,255,.2);
+    background: rgba(20,22,28,.42); border-color: rgba(255,255,255,.22);
   }
-  #fsControlPanel .icon-btn-outline-start { background: rgba(31,35,44,.4); }
-  #fsControlPanel .icon-btn-outline-end { background: rgba(31,35,44,.4); }
-  #fsControlPanel .btn.green { background: rgba(47,143,78,.62); }
-  #fsControlPanel .btn.orange { background: rgba(224,86,63,.62); }
-  #fsControlPanel .btn:not(.secondary):not(.green):not(.orange) { background: rgba(47,111,237,.62); }
-  #fsControlPanel .trim-bar { background: rgba(31,35,44,.45); border-color: rgba(255,255,255,.2); }
+  #fsControlPanel .icon-btn-outline-start { background: rgba(20,22,28,.3); }
+  #fsControlPanel .icon-btn-outline-end { background: rgba(20,22,28,.3); }
+  #fsControlPanel .btn.green { background: rgba(47,143,78,.55); }
+  #fsControlPanel .btn.orange { background: rgba(224,86,63,.55); }
+  #fsControlPanel .btn:not(.secondary):not(.green):not(.orange) { background: rgba(47,111,237,.55); }
   #fsControlPanel .zoom-reset-pill { background: rgba(47,111,237,.22); }
   #fsControlPanel .warn-box { background: rgba(217,165,58,.16); }
+
+  /* トリムバーは参考レイアウトのようにできるだけ主張を抑えた見た目にする。
+     つまみ・再生位置線・開始終了の可動域(緑〜オレンジのグラデーション帯)は
+     そのまま残しつつ、バー自体の背景はごく薄く・縁取りなしにする */
+  #fsControlPanel .trim-bar { background: rgba(255,255,255,.08); border-color: transparent; box-shadow: none; }
+
+  /* 再生ボタンは行いっぱいに伸びる巨大なピルにせず、他のアイコンボタンと
+     同程度の大きさに収めて、参考レイアウトのように行の中に均等に浮かべる
+     （通常表示のstep-rowはflex:1で play ボタンが伸びる仕様のままなので、
+     ここは #fsControlPanel 限定の上書き） */
+  #fsControlPanel .step-row { justify-content: space-between; }
+  #fsControlPanel .step-row .btn {
+    flex: 0 0 auto; width: auto; padding: 10px 22px; font-size: 13px;
+  }
 
   /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
   .seek-block { position: relative; margin-top: 20px; height: 62px; }
