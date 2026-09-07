@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-07 15:05
+     最終更新日時: 2026-09-07 16:44 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -503,6 +503,54 @@
      ・見た目・DOM構造上の変更はCSSクラス追加とサイズ数値の戻しのみで、`FS_MOVABLES`・
        `enterFsOverlay()`・`stepRowEl`の取得方法には影響しないため、jsdomの再テストは
        不要と判断した。構文チェック・重複id・$()参照の整合性を再確認済み。
+
+     2026-09-02 (運用): 画面上に表示されるバージョン表記の更新漏れを修正（v15）。
+     ユーザーから「今後は更新日時やバージョンの更新情報も記載忘れずお願いします」との指摘があった。
+     プロジェクトの依頼事項にも「更新した/していないが目視でわかる形にてバージョン表記をしてほしい」
+     とあるとおり、このアプリには元々「保存先設定」画面に目視確認用の
+     `バージョン: v2026-08-26 08:51` という表示（ユーザーが実際に画面で見えるラベル）が
+     存在していたが、v7〜v14の各回でこのHTMLコメント内の「最終更新日時」は都度更新していた
+     一方、この画面表示側のバージョン文字列の更新を失念しており、8/26時点の古い日付のまま
+     取り残されていた。
+     ・画面表示のバージョン文字列を、このコメント冒頭の「最終更新日時」と同じ日時
+       （`v2026-09-02 07:50`）に更新し、実際のコード内容と一致させた。
+     ・今後は、index.htmlを編集するたびに (1) このHTMLコメント冒頭の「最終更新日時」、
+       (2) 「保存先設定」画面のバージョン表示の2箇所を必ずセットで更新することを徹底する
+       （どちらか一方だけ更新して他方が古いまま、という今回のような食い違いを防ぐため）。
+
+     2026-09-07: 通常表示（全画面オフ）時の再生ボタン行が3行に折り返されてしまう不具合を
+     修正（v16）。ユーザーから「全画面モードオフの時は再生ボタンとかは1列にしてください」との
+     指摘（スマホでの実際のスクリーンショット付き）があった。
+     ・原因は2つ重なっていた。(1) 再生ボタン（`#playPauseBtn`）が基本クラス`.btn`の
+       `width:100%`を継承したまま`.step-row .btn`側では上書きしていなかったため、
+       flex-basisが実質「行の全幅」になり、幅の狭いスマホ画面ではこのボタン1つだけで
+       1行分を占有してしまい、前後のアイコンボタン群がそれぞれ2行目・3行目に
+       押し出されていた（全画面表示側の`#fsControlPanel .step-row .btn`は元々
+       `width: auto`で上書きしていたため、この問題は通常表示のみで発生していた）。
+       (2) `.step-row-main`に`flex-wrap: wrap`が付いていたため、(1)で行があふれた際に
+       素直に折り返してしまっていた（v13で3秒ボタン追加時に9ボタン対応の安全策として
+       付けたもので、通常表示の7ボタン構成には過剰だった）。
+     ・対応:
+       - `.step-row .btn`に`width: auto; min-width: 0;`を追加し、再生ボタンが内容に
+         応じた幅になるよう修正。
+       - `.step-row-main`の`flex-wrap`を`wrap`から`nowrap`に変更し、通常表示は常に
+         1列で収まるようにした。
+       - `.icon-btn`のサイズを固定38pxから`clamp(30px, 9vw, 38px)`、
+         `.step-row-main`のgapを固定6pxから`clamp(4px, 1.6vw, 6px)`に変更し、
+         画面幅が320px程度まで狭い端末でも7ボタンが1列に収まるようにした
+         （広い画面では従来どおり38px/6pxのまま変化なし）。
+       - 全画面表示（9ボタン）側は`.step-row-main`のnowrap化の影響を受けないよう、
+         `#fsControlPanel .step-row-main`に`flex-wrap: wrap`を明示指定し直し、
+         横向きで万一入りきらない場合の2行折り返し安全策は維持した。
+         `#fsControlPanel .icon-btn`（36px固定）・`#fsControlPanel .step-row .btn`
+         （width:auto）は元々問題なかったため変更なし。
+     ・検証: Playwrightで実機を模したビューポート幅（320/340/360/384/400/430px）ごとに
+       通常表示の再生ボタン行の実測レイアウトを取得し、いずれの幅でも7ボタンすべてが
+       1行（行の高さ＝最大の子要素の高さと一致）に収まり、はみ出しも無いことを確認した。
+       全画面表示側もダミーDOMで#fsControlPanelを再現し、9ボタンが1行に収まることを
+       確認済み。構文チェック・重複id・$()参照の整合性チェックも実施し、問題なし。
+       （FS_MOVABLES・enterFsOverlay()等のDOM再配置ロジック自体は変更していないため、
+       jsdomでの再配置ロジックの再テストは不要と判断した）
      ============================================================ -->
 <style>
   :root {
@@ -808,7 +856,10 @@
      兄弟要素なので、伸びた.step-row-mainの右隣＝行の右端に自然に押し出される
      （「再生ボタンらは中央ぞろい、倍速ボタンは右端に配置」との要望） */
   #fsControlPanel .step-row { gap: 10px; }
-  #fsControlPanel .step-row-main { flex: 1 1 auto; justify-content: center; gap: 10px; }
+  /* [v16] 通常表示側の.step-row-mainはnowrapに変更したため、全画面表示（3秒ボタン込みで
+     9ボタン）側は従来どおりflex-wrap:wrapを明示指定し、万一横幅が足りない場合の
+     2行折り返し安全策を維持する */
+  #fsControlPanel .step-row-main { flex: 1 1 auto; flex-wrap: wrap; justify-content: center; gap: 10px; }
   #fsControlPanel .step-row .btn {
     flex: 0 0 auto; width: auto; padding: 8px 18px; font-size: 13.5px;
   }
@@ -889,16 +940,31 @@
      .step-row全体に広がり見た目は従来と変わらない（全画面表示時の中央ぞろい配置は
      #fsControlPanel側で上書き）。通常表示は開始/終了へ移動・10秒/1秒送り戻し・再生の
      7ボタン構成（3秒ボタンは全画面表示専用の.fs-onlyのため通常表示には含まれない）。
-     全画面表示中は3秒ボタンが加わり9ボタンになるが、横幅に余裕がある横向き画面が
-     前提のため詰めなくても収まる想定。それでも万一入りきらない場合に備え、
-     flex-wrap:wrapで自動的に2行目へ折り返す安全策にしてある */
+     [v16] 通常表示（全画面オフ）は必ず1列に収める要望のため、flex-wrapはnowrapに変更。
+     以前はwrapにしていたため、幅の狭いスマホでは再生ボタンが行いっぱいに広がる
+     バグ（後述）と相まって3行に折り返されてしまっていた。全画面表示側（9ボタン）は
+     #fsControlPanel .step-row-main側でflex-wrap:wrapを個別に指定し、横向きで万一
+     入りきらない場合の安全策は維持している */
   .step-row-main {
-    display: flex; align-items: center; flex-wrap: wrap; justify-content: center;
-    gap: 6px; flex: 1 1 auto; min-width: 0;
+    display: flex; align-items: center; flex-wrap: nowrap; justify-content: center;
+    gap: clamp(4px, 1.6vw, 6px); flex: 1 1 auto; min-width: 0;
   }
-  .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 12px 2px; white-space: nowrap; }
+  /* [v16] 再生ボタン（playPauseBtn）は.btnの基本スタイル（width:100%）を継承したままで、
+     ここでflex:1 1 autoだけを指定していたため、flex-basisが実質「行の全幅」になり、
+     幅の狭い画面ではこのボタン1つだけで1行分を占有 → 前後のアイコンボタンが
+     はみ出して2行目・3行目に折り返される原因になっていた。width:autoで内容に応じた
+     幅に戻し、min-width:0で必要なら詰められるようにして、1列に収まるようにした */
+  .step-row .btn {
+    flex: 1 1 auto; width: auto; min-width: 0; font-size: 12px; padding: 12px 2px;
+    white-space: nowrap;
+  }
+  /* [v16] アイコンボタンのサイズもclamp()で画面幅に応じてわずかに縮められるようにし、
+     320px幅程度の小さいスマホでも7ボタンが1列に収まるようにした（広い画面では
+     従来どおり38pxのまま）。#fsControlPanel .icon-btn（全画面時36px固定）はID指定で
+     優先されるため、全画面表示には影響しない */
   .icon-btn {
-    width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
+    width: clamp(30px, 9vw, 38px); height: clamp(30px, 9vw, 38px);
+    border-radius: 10px; border: none; cursor: pointer; padding: 0;
     display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
@@ -1236,7 +1302,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-26 08:51</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-09-07 16:44</div>
       </div>
     </section>
 
