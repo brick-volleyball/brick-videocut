@@ -444,6 +444,45 @@
        レイアウトから除外されるため、影響は一切ない。DOM再配置ロジック
        （FS_MOVABLES・enterFsOverlay()）・stepRowElの取得方法にも変更なし。
        構文チェック・重複id・$()参照の整合性を再確認済み。
+
+     2026-09-02 (改善): 全画面表示中の保存進捗・完了通知／3秒送り戻しボタンを追加（v13）。
+     ユーザーから2点の追加要望：(1) 全画面モードで保存する時に進捗バーや保存完了の通知が
+     見えるようにしてほしい、(2) 1秒・10秒だけでなく3秒進む/戻るボタンも追加してほしい。
+     これに沿ってv13として対応した：
+     ・(1) 保存の進捗オーバーレイ（#busyOverlay、通常保存/Nice/Fun/静止画すべてで共通）と
+       完了・失敗トースト（#toast）は、どちらも通常はbody直下に置かれたposition:fixed要素で、
+       z-indexだけでvideoWrapの上に重ねて見せる設計だった。ところが、ネイティブの
+       Fullscreen API（requestFullscreen(videoWrap)）が有効な環境では、全画面中は
+       videoWrap「の子孫要素」以外は一切描画されないというブラウザの仕様上の制約があり、
+       videoWrapの外にいるbusyOverlay/toastは全画面中に完全に不可視になっていた
+       （CSSのz-index計算は正しくても、そもそも描画対象から除外されてしまう）。
+       これを解消するため、他のFS_MOVABLES（stepRow・seekBlock・fsAbRow・saveCard）と
+       全く同じ「全画面中だけvideoWrap配下へ一時的に移動し、終了時に元の位置へ正確に
+       戻す」パターンをbusyOverlay・toastにも適用した。どちらもposition:fixedのままなので
+       画面上の見た目の位置（進捗バーは画面中央、トーストは画面下部）は移動の前後で
+       変化しない。FS_MOVABLESは4要素→6要素（stepRow→seekBlock→fsAbRow→saveCard→
+       busyOverlay→toast、実際のDOM上の並び順のまま）になった。
+     ・busyOverlay・toastはFS_MOVABLES内の他の要素と異なり、#clipEditor（クリップ作成
+       画面）の外、body直下という全く別の場所に元々あるため、jsdomによるDOM再配置
+       round-tripテストを新しい6要素構成向けに書き直して再実行し、全画面のON/OFFを
+       複数回繰り返しても6要素すべてが元の親・直後の兄弟要素へ正確に戻ること、全画面中は
+       busyOverlay・toastがvideoWrap直下（fsAbRowの後、#fsControlPanelより後）に正しく
+       移動していることを確認済み（72アサーション全てパス）。
+     ・(2) 再生系ボタン行（.step-row-main）に、既存の10秒・1秒送り戻しに加えて3秒送り戻し
+       ボタン（step3BackBtn/step3FwdBtn）を追加した。1秒（単矢印アイコン）・10秒（二重矢印
+       アイコン）と紛らわしくならないよう、アイコンではなく「◀3」「3▶」という数字テキストで
+       直接見分けられるようにしている（クリック時は既存の1秒/10秒ボタンと同じ
+       flashScrubBadge()の仕組みで「◀ 3秒」「3秒 ▶」と動画上に一瞬表示する）。
+       ボタン数が7→9に増えたことによる幅の狭い端末での横はみ出しを防ぐため、
+       .step-row-mainにflex-wrap:wrapを追加（入りきらない分は自動的に2行目へ折り返す。
+       横幅に余裕がある全画面表示中や大きめの端末では従来どおり1行に収まる）、
+       あわせてアイコンボタンのサイズ（38px→34px）・行間gap（6px→5px）を通常表示側のみ
+       一段階詰めて、単一行に収まりやすくした（全画面側の36pxサイズ・10pxgapは変更なし。
+       全画面は横向きで横幅に余裕があるため）。
+     ・DOM再配置ロジック（FS_MOVABLES・enterFsOverlay()）以外の部分（3秒ボタン追加）は
+       stepRowElの取得方法（document.querySelector(".step-row")のまま）に影響しないため、
+       再テストの必要はない。構文チェック・重複id・$()参照の整合性を再確認済み。
+       実機での見え方（特に3秒ボタンの視認性・狭い端末での折り返しの有無）は次回確認予定。
      ============================================================ -->
 <style>
   :root {
@@ -824,21 +863,31 @@
   .zoom-range-text { text-align: center; font-size: 10.5px; color: var(--text-dim); }
 
   /* 1秒送り/戻し・再生の行に統合した「開始/終了位置へ移動」アイコン */
-  .step-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
-  /* 再生系7ボタン（開始/終了へ移動・10秒/1秒送り戻し・再生）をまとめる内側の行。
+  .step-row { display: flex; align-items: center; gap: 5px; margin-top: 12px; }
+  /* 再生系9ボタン（開始/終了へ移動・10秒/3秒/1秒送り戻し・再生）をまとめる内側の行。
      倍速ボタン（fsSpeedBtn、通常表示では非表示）を.step-rowの兄弟として
      独立させるためのラッパーで、通常表示ではflex:1で.step-row全体に広がり
-     見た目は従来と変わらない（全画面表示時の中央ぞろい配置は#fsControlPanel側で上書き） */
-  .step-row-main { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
-  .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 12px 2px; white-space: nowrap; }
+     見た目は従来と変わらない（全画面表示時の中央ぞろい配置は#fsControlPanel側で上書き）。
+     3秒ボタンを追加しボタン数が7→9に増えたため、幅の狭い端末でも横はみ出しが
+     絶対に起きないよう flex-wrap:wrap にしてある（入りきらない分だけ自動的に
+     2行目へ折り返す。横幅に余裕がある画面＝全画面表示中や大きめの端末では
+     従来どおり1行に収まる） */
+  .step-row-main {
+    display: flex; align-items: center; flex-wrap: wrap; justify-content: center;
+    gap: 5px; flex: 1 1 auto; min-width: 0;
+  }
+  .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 11px 2px; white-space: nowrap; }
   .icon-btn {
-    width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
+    width: 34px; height: 34px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
     display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
   .icon-btn-outline-end { background: var(--card-2); border: 1.5px solid var(--orange); color: var(--orange); }
   /* 1秒/10秒送り戻し（アイコンのみ。押した内容は動画上の scrub-badge で一瞬表示する） */
   .icon-btn-step { background: var(--card-2); border: 1px solid var(--border); color: var(--text); }
+  /* 3秒送り戻し。1秒(単矢印アイコン)・10秒(二重矢印アイコン)と紛らわしくならないよう、
+     アイコンではなく「◀3」「3▶」という数字テキストで直接見分けられるようにした */
+  .icon-btn-num { font-size: 10.5px; font-weight: 700; letter-spacing: -0.02em; }
 
   /* 開始/終了に設定するボタンの行（1秒送り等とは別の行） */
   .dur-line { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 12px; }
@@ -1036,6 +1085,9 @@
               <button type="button" class="icon-btn icon-btn-step" id="step10BackBtn" title="10秒戻る" aria-label="10秒戻る">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-6 6 6 6"/><path d="M12 6l-6 6 6 6"/></svg>
               </button>
+              <!-- 3秒送り戻し（1秒・10秒の間の刻み。アイコンだけだと1秒/10秒と
+                   見分けづらいため、数字テキストで直接「3s」と表示する方式にした） -->
+              <button type="button" class="icon-btn icon-btn-step icon-btn-num" id="step3BackBtn" title="3秒戻る" aria-label="3秒戻る">◀3</button>
               <button type="button" class="icon-btn icon-btn-step" id="stepBackBtn" title="1秒戻る" aria-label="1秒戻る">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
               </button>
@@ -1043,6 +1095,7 @@
               <button type="button" class="icon-btn icon-btn-step" id="stepFwdBtn" title="1秒進む" aria-label="1秒進む">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
               </button>
+              <button type="button" class="icon-btn icon-btn-step icon-btn-num" id="step3FwdBtn" title="3秒進む" aria-label="3秒進む">3▶</button>
               <button type="button" class="icon-btn icon-btn-step" id="step10FwdBtn" title="10秒進む" aria-label="10秒進む">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg>
               </button>
@@ -1766,19 +1819,30 @@
   const seekBlockEl = document.querySelector(".seek-block");
   const fsAbRowEl = $("fsAbRow");
   const saveCardEl = $("saveNormalBtn").closest(".card");
+  // 保存の進捗オーバーレイ（#busyOverlay、通常保存/Nice/Fun/静止画すべてで共通使用）と
+  // 完了・失敗トースト（#toast）。どちらも通常はbody直下の固定要素で、z-indexだけで
+  // videoWrapの上に重ねて見せていたが、ネイティブのFullscreen API
+  // （requestFullscreen(videoWrap)）が有効な環境では、フルスクリーン中は
+  // videoWrapの「子孫要素」以外は一切描画されない（ブラウザの仕様）ため、
+  // 全画面表示中に保存すると進捗バー・完了トーストが実際には見えなくなっていた。
+  // これを解消するため、他のFS_MOVABLES同様に全画面中だけvideoWrap配下へ
+  // 一時的に移動させる（position:fixedのままなので見た目上の位置は変化しない）。
+  const busyOverlayEl = $("busyOverlay");
+  const toastEl = $("toast");
 
   // 全画面表示中に動画の上へ移動させる要素一式。
-  // （stepRow・seekBlock・fsAbRow（開始位置/終了位置/A-Bループ）・保存カードの4つ。
+  // （stepRow・seekBlock・fsAbRow（開始位置/終了位置/A-Bループ）・保存カード・
+  // 保存進捗オーバーレイ・完了トーストの6つ。
   // zoomControls・durLine・通常表示のmarkRow「この瞬間を開始/終了に」は全画面時は
   // 表示せず、通常表示に戻ってから使う想定。全画面表示中はシークバーの操作も
   // 「再生位置のシーク」のみに簡略化している＝下記のrangeWrapのpointerdown参照）
   // このFS_MOVABLES配列の並び順は、実際のページ読み込み時のDOM上の並び順
-  // （stepRow→seekBlock→fsAbRow→saveCard）と一致させる必要がある。restoreFsOverlay()
-  // はこの並びを逆順に処理して元の位置へ戻すため、順序がズレると復元が壊れる
-  // （どの#fsControlPanel/videoWrap配下に一時的に移動するかとは無関係）。
+  // （stepRow→seekBlock→fsAbRow→saveCard→busyOverlay→toast）と一致させる必要がある。
+  // restoreFsOverlay()はこの並びを逆順に処理して元の位置へ戻すため、順序がズレると
+  // 復元が壊れる（どの#fsControlPanel/videoWrap配下に一時的に移動するかとは無関係）。
   // 元の位置（親要素・直後の兄弟要素）はページ読み込み時に一度だけ記録しておき、
   // 終了時にそれぞれ正確に同じ場所へ戻せるようにする
-  const FS_MOVABLES = [stepRowEl, seekBlockEl, fsAbRowEl, saveCardEl];
+  const FS_MOVABLES = [stepRowEl, seekBlockEl, fsAbRowEl, saveCardEl, busyOverlayEl, toastEl];
   const fsHomes = FS_MOVABLES.map(function (el) {
     return { el: el, parent: el.parentNode, next: el.nextSibling };
   });
@@ -1797,6 +1861,12 @@
     // バッジの下）に独立配置する。videoWrap直下に置くことで、動画を覆う
     // fixedオーバーレイ（videoWrap）の上に重なって見えるようにしている
     videoWrap.appendChild(fsAbRowEl);
+    // 保存進捗オーバーレイ・完了トーストも同様にvideoWrap直下へ移動する。
+    // どちらもposition:fixedなので見た目の位置（画面中央／画面下部）はそのまま。
+    // #fsControlPanelより後にappendChildすることで、万一z-indexが同点でも
+    // DOM順で#fsControlPanelより手前（上）に描画されるようにしている
+    videoWrap.appendChild(busyOverlayEl);
+    videoWrap.appendChild(toastEl);
   }
 
   function restoreFsOverlay() {
@@ -1978,6 +2048,15 @@
   $("stepFwdBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 1);
     flashScrubBadge("1秒 ▶");
+  });
+  // 3秒送り戻し（1秒・10秒の間の刻み幅として追加）
+  $("step3BackBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 3);
+    flashScrubBadge("◀ 3秒");
+  });
+  $("step3FwdBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 3);
+    flashScrubBadge("3秒 ▶");
   });
   $("step10BackBtn").addEventListener("click", () => {
     previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 10);
