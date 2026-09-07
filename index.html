@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-02 07:30 JST
+     最終更新日時: 2026-09-07 15:05
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -483,6 +483,26 @@
        stepRowElの取得方法（document.querySelector(".step-row")のまま）に影響しないため、
        再テストの必要はない。構文チェック・重複id・$()参照の整合性を再確認済み。
        実機での見え方（特に3秒ボタンの視認性・狭い端末での折り返しの有無）は次回確認予定。
+
+     2026-09-02 (改善): 3秒送り戻しボタンを全画面表示専用に変更（v14）。
+     ユーザーから「3秒ボタンは全画面モードの時専用にしてください」との要望があり対応した：
+     ・v13で追加した`step3BackBtn`/`step3FwdBtn`に、`fsAbRow`/`fsSpeedBtn`/`stepRowSpacer`と
+       同じ`.fs-only`クラスを追加した。`.fs-only`は通常表示では`display:none !important`、
+       `#fsControlPanel`（全画面表示中に`.step-row`ごと移動する先）配下に入ると
+       `display:flex !important`になる既存の仕組みで、`step3BackBtn`/`step3FwdBtn`自体は
+       `.step-row-main`内の同じ場所に置いたまま、CSSのクラス追加だけで「通常表示では非表示、
+       全画面表示でのみ表示」という挙動に切り替えられた（HTML構造・JSのクリックハンドラ・
+       DOM再配置ロジックは一切変更していない）。
+     ・これにより通常表示は、3秒ボタンを追加する前と全く同じ7ボタン構成（開始/終了へ移動・
+       10秒/1秒送り戻し・再生）に戻った。v13でボタン数増加（7→9）に備えて通常表示側だけ
+       縮小していたアイコンボタンサイズ（38px→34px）・行間gap（6px→5px）も、7ボタン構成に
+       戻ったことで不要になったため、元の38px/6pxへ戻した。全画面表示は引き続き9ボタン
+       （通常表示の7つ＋全画面専用の3秒ボタン2つ）で、横向きの広い画面幅を前提に
+       アイコンサイズ36px・gap10pxのまま。念のための`flex-wrap:wrap`の折り返し安全策は
+       双方のモードでそのまま残している。
+     ・見た目・DOM構造上の変更はCSSクラス追加とサイズ数値の戻しのみで、`FS_MOVABLES`・
+       `enterFsOverlay()`・`stepRowEl`の取得方法には影響しないため、jsdomの再テストは
+       不要と判断した。構文チェック・重複id・$()参照の整合性を再確認済み。
      ============================================================ -->
 <style>
   :root {
@@ -863,30 +883,31 @@
   .zoom-range-text { text-align: center; font-size: 10.5px; color: var(--text-dim); }
 
   /* 1秒送り/戻し・再生の行に統合した「開始/終了位置へ移動」アイコン */
-  .step-row { display: flex; align-items: center; gap: 5px; margin-top: 12px; }
-  /* 再生系9ボタン（開始/終了へ移動・10秒/3秒/1秒送り戻し・再生）をまとめる内側の行。
-     倍速ボタン（fsSpeedBtn、通常表示では非表示）を.step-rowの兄弟として
-     独立させるためのラッパーで、通常表示ではflex:1で.step-row全体に広がり
-     見た目は従来と変わらない（全画面表示時の中央ぞろい配置は#fsControlPanel側で上書き）。
-     3秒ボタンを追加しボタン数が7→9に増えたため、幅の狭い端末でも横はみ出しが
-     絶対に起きないよう flex-wrap:wrap にしてある（入りきらない分だけ自動的に
-     2行目へ折り返す。横幅に余裕がある画面＝全画面表示中や大きめの端末では
-     従来どおり1行に収まる） */
+  .step-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+  /* 再生系ボタンをまとめる内側の行。倍速ボタン（fsSpeedBtn、通常表示では非表示）を
+     .step-rowの兄弟として独立させるためのラッパーで、通常表示ではflex:1で
+     .step-row全体に広がり見た目は従来と変わらない（全画面表示時の中央ぞろい配置は
+     #fsControlPanel側で上書き）。通常表示は開始/終了へ移動・10秒/1秒送り戻し・再生の
+     7ボタン構成（3秒ボタンは全画面表示専用の.fs-onlyのため通常表示には含まれない）。
+     全画面表示中は3秒ボタンが加わり9ボタンになるが、横幅に余裕がある横向き画面が
+     前提のため詰めなくても収まる想定。それでも万一入りきらない場合に備え、
+     flex-wrap:wrapで自動的に2行目へ折り返す安全策にしてある */
   .step-row-main {
     display: flex; align-items: center; flex-wrap: wrap; justify-content: center;
-    gap: 5px; flex: 1 1 auto; min-width: 0;
+    gap: 6px; flex: 1 1 auto; min-width: 0;
   }
-  .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 11px 2px; white-space: nowrap; }
+  .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 12px 2px; white-space: nowrap; }
   .icon-btn {
-    width: 34px; height: 34px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
+    width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
     display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
   }
   .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
   .icon-btn-outline-end { background: var(--card-2); border: 1.5px solid var(--orange); color: var(--orange); }
   /* 1秒/10秒送り戻し（アイコンのみ。押した内容は動画上の scrub-badge で一瞬表示する） */
   .icon-btn-step { background: var(--card-2); border: 1px solid var(--border); color: var(--text); }
-  /* 3秒送り戻し。1秒(単矢印アイコン)・10秒(二重矢印アイコン)と紛らわしくならないよう、
-     アイコンではなく「◀3」「3▶」という数字テキストで直接見分けられるようにした */
+  /* 3秒送り戻し（全画面表示専用）。1秒(単矢印アイコン)・10秒(二重矢印アイコン)と
+     紛らわしくならないよう、アイコンではなく「◀3」「3▶」という数字テキストで
+     直接見分けられるようにした */
   .icon-btn-num { font-size: 10.5px; font-weight: 700; letter-spacing: -0.02em; }
 
   /* 開始/終了に設定するボタンの行（1秒送り等とは別の行） */
@@ -1086,8 +1107,12 @@
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-6 6 6 6"/><path d="M12 6l-6 6 6 6"/></svg>
               </button>
               <!-- 3秒送り戻し（1秒・10秒の間の刻み。アイコンだけだと1秒/10秒と
-                   見分けづらいため、数字テキストで直接「3s」と表示する方式にした） -->
-              <button type="button" class="icon-btn icon-btn-step icon-btn-num" id="step3BackBtn" title="3秒戻る" aria-label="3秒戻る">◀3</button>
+                   見分けづらいため、数字テキストで直接「3s」と表示する方式にした）。
+                   「3秒ボタンは全画面モードの時専用にしてほしい」との要望により、
+                   fsAbRow/fsSpeedBtn等と同じ.fs-onlyクラスで通常表示では非表示にし、
+                   #fsControlPanel（全画面時に.step-rowごと移動する先）に入った時だけ
+                   表示されるようにしている。通常表示は元の7ボタン構成のまま変化なし。 -->
+              <button type="button" class="icon-btn icon-btn-step icon-btn-num fs-only" id="step3BackBtn" title="3秒戻る" aria-label="3秒戻る">◀3</button>
               <button type="button" class="icon-btn icon-btn-step" id="stepBackBtn" title="1秒戻る" aria-label="1秒戻る">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
               </button>
@@ -1095,7 +1120,8 @@
               <button type="button" class="icon-btn icon-btn-step" id="stepFwdBtn" title="1秒進む" aria-label="1秒進む">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
               </button>
-              <button type="button" class="icon-btn icon-btn-step icon-btn-num" id="step3FwdBtn" title="3秒進む" aria-label="3秒進む">3▶</button>
+              <!-- 3秒送り（全画面表示専用。上のstep3BackBtnと同じ理由でfs-only） -->
+              <button type="button" class="icon-btn icon-btn-step icon-btn-num fs-only" id="step3FwdBtn" title="3秒進む" aria-label="3秒進む">3▶</button>
               <button type="button" class="icon-btn icon-btn-step" id="step10FwdBtn" title="10秒進む" aria-label="10秒進む">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg>
               </button>
