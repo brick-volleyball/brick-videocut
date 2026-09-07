@@ -1,0 +1,2959 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BRICK 動画クリッパー</title>
+<!-- ============================================================
+     BRICK 動画クリッパー
+     最終更新日時: 2026-09-02 07:30 JST
+     ------------------------------------------------------------
+     2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
+     ガードを追加。未ログイン/未登録のユーザーは自動的に
+     https://brick-volleyball.github.io/tools/ へリダイレクトする。
+     管理者アカウント(ADMIN_EMAILS)は登録状況にかかわらず常に利用可能
+     (tools/index.html, tools/list.htmlと同じ判定を追加)。
+
+     2026-08-22: シークバーに再生位置(白い縦線)を表示。長時間の動画でも
+     細かく位置指定できるよう、シークバーのピンチイン/アウトによる
+     ズーム・パン操作と、代替のズームボタンを追加。
+     また、現在の再生位置の静止画をJPEGとして保存できる機能を追加
+     (ファイル名: 元ファイル名_再生位置.jpg)。
+     シークバーは指1本のドラッグで再生位置(白い線)を直接動かせるように
+     した(開始/終了つまみのドラッグとは独立)。
+
+     2026-08-22 (修正): 白い再生位置の線がドラッグで動かない不具合を修正
+     (指のズレでイベントが取りこぼされていたため、開始/終了つまみと同じ
+     window監視方式に統一)。ズーム中に今どこを見ているか分かるよう、
+     全体に対する現在表示範囲を示すミニマップと時間表示を追加。
+     長い動画で保存位置がズレる不具合の原因になっていた、クリップ抽出時の
+     頭出し(シーク)待ちを、固定時間待つ方式から実際のシーク完了を確認する
+     方式に変更(頭出しに時間がかかる長い動画でのズレを防止)。
+
+     2026-08-22 (UI調整): 機能追加で画面が縦に収まりきらなくなっていたため、
+     省スペース化。「再生操作(◀1秒/再生/1秒▶/2倍速)」と「保存(通常保存/
+     Nice/Fun/静止画)」をそれぞれ1行4ボタンにまとめ、ズーム関連の余白も
+     詰めた。
+
+     2026-08-25 (デザイン刷新): シークバー周りのUIをデザイン案を経て刷新。
+     ・「動画を選び直す」「2倍速」は動画プレビューの右上/右下に重なる
+       アイコンボタンに変更(操作列から独立させ、省スペース化)。
+     ・開始/終了の設定・移動ボタンは、シークバー直下のアイコン列
+       (旗アイコン=この瞬間に設定／矢印アイコン=その位置へ移動)に統合。
+     ・シークバーは、つまみの真上に開始/終了の時刻を示すバッジを表示しつつ、
+       選択範囲を全高の帯で強調する編集ソフト風の太めのバー(48px)に変更。
+       ミニマップはバー下端に統合。バッジと重複するテキストの時刻表示は
+       廃止した。
+
+     2026-08-25 (改善): 動画抜き出し中にキャンセルできるボタンを処理中
+     オーバーレイに追加。
+     シークバー・ボタン配置を再調整:
+     ・ズームは「ピンチ操作のみ」に簡略化(＋－ボタン等は等倍時は非表示、
+       ズーム中のみ「全体に戻す」と表示範囲を左右に動かすボタンが出る)。
+     ・シークバー/トリムバーの縦幅をさらに縮小(48px→40px)。
+     ・トリムバーは上半分のタッチで再生位置(白い線)、下半分のタッチで
+       近い方の開始/終了ハンドルが反応するように分離(狭いつまみを正確に
+       つままなくても操作できるようにするため)。
+     ・「開始/終了位置へ移動」ボタンは◀1秒/再生/1秒▶の行の両端に統合。
+       「この瞬間を開始/終了に」ボタンはその下の専用の行に変更。
+
+     2026-08-25 (微調整): ◀1秒/再生/1秒▶行と「この瞬間を開始/終了に」行の
+     文字が2行に折り返されて見づらかったため、文字サイズを縮小し折り返さない
+     ようにした。
+
+     2026-08-25 (不具合修正): 端末の処理が重く実再生がリアルタイムに追いつか
+     ない場合、抽出（保存）が指定した範囲より手前で打ち切られ、末尾が数秒
+     欠けて保存されてしまう不具合を修正。打ち切り判定を「経過時間(壁時計)が
+     切り出し長さ+1秒を超えたら終了」から「実際にend地点まで再生が進んだか
+     (または動画そのものが終端に達したか)」を基準にする方式に変更し、経過
+     時間の上限は完全に固まった場合の保険として大きく取るようにした（切り出
+     し長さ×4+10秒）。あわせて、抽出中に一時的に再生が止まってしまった場合は
+     自動的に再生を再開するようにした。
+
+     2026-08-25 (不具合修正): mp4で保存した動画が、アプリによって長さの
+     認識が異なる(ファイルマネージャー＋では正しい長さに見えるが、
+     MX Playerでは数秒に、Threadsにアップロードすると数秒に切られる)不具合
+     を修正。原因は、動画抜き出しに使っているブラウザの録画機能が出力する
+     mp4が「フラグメント化」という配信向けの構造になっており、映像・音声
+     データ自体は最後まで正しく入っているものの、内部の管理情報(サンプル
+     一覧表)が複数の断片に分かれて入っているため、この構造を理解できない
+     一部のアプリ・アップロード先が最初の断片だけを動画の全部だと誤認識
+     していたこと。mp4で保存する際、抜き出し直後に内部構造を通常の(断片化
+     されていない)構造に組み直す処理を追加した。映像・音声のバイト列その
+     ものは一切変更しないため、画質・音質の劣化や再エンコードは発生しない。
+     組み直しに失敗した場合は自動的に元のファイルのまま保存する。
+
+     2026-08-26 (不具合修正): 「保存先設定」「保存済み一覧」タブに移動して
+     から「クリップ作成」タブに戻ると、プレビュー動画が再生できなくなる
+     不具合を修正。原因は主に「保存済み一覧」タブで、フォルダ内の保存済み
+     クリップ全件ぶんのサムネイル用動画を毎回作成しているのにBlobURLを解放
+     しておらず、タブを開くたびに端末の動画デコーダー資源を消費し続けて
+     いたこと。一覧を作り直す前に古いBlobURLを解放するようにした。
+     あわせて、非表示タブに切り替えたことが原因でプレイヤー側の状態が
+     壊れてしまった場合の保険として、「クリップ作成」タブに戻るたびに
+     再生位置を保ったまま動画の読み込みを行い直す処理を追加した。
+
+     2026-08-31 (改善): 「この瞬間を開始に」「この瞬間を終了に」ボタンが、
+     開始位置より後（終了ボタンの場合）／終了位置より前（開始ボタンの場合）
+     の再生位置では「指定できません」と拒否されるだけだった点を改善。
+     ・「この瞬間を開始に」を、現在の終了位置より後ろ（または近すぎる）の
+       再生位置で押した場合は、拒否せずに終了位置を再生位置の5秒後へ
+       自動的に移動させた上で開始位置を設定するようにした。
+     ・「この瞬間を終了に」を、現在の開始位置より前（または近すぎる）の
+       再生位置で押した場合は、拒否せずに開始位置を再生位置の5秒前へ
+       自動的に移動させた上で終了位置を設定するようにした（0秒未満には
+       ならないようクランプ）。
+     ・動画の先頭／終端に近すぎて5秒分の余地が取れない場合のみ、
+       従来どおりトーストで指定できない旨を知らせる。
+
+     2026-08-31 (UI調整): ユーザーからのフィードバックを受けて調整。
+     ・動画プレビューをカードの内側パディング分だけ外側にはみ出させ、
+       カード幅いっぱいまで大きく表示されるようにした（動画に重ねている
+       アイコンボタンやバッジの位置は変更なし）。
+     ・「開始/終了位置へ移動」ボタン（◀1秒/再生/1秒▶の行の両端）の矢印
+       アイコンを、「この瞬間を開始/終了に」ボタンと同じ旗アイコンに統一。
+     ・1秒送り/戻しに加えて、10秒送り/戻しボタンを新設（1秒の行の下に、
+       少し控えめな見た目の行として追加）。
+
+     2026-09-01 (機能追加): プレビュー動画そのものを左右になぞって早送り/
+     巻き戻しできるようにした（右になぞる＝進む／左になぞる＝戻る）。
+     指を動かした分だけリアルタイムに再生位置が動く。ドラッグ開始時に
+     再生中だった場合は一旦一時停止し、指を離すと再生を再開する。
+     縦方向のスワイプ（ページスクロール）は従来どおり通すようにしており、
+     横方向のドラッグのみをこの操作として扱う（touch-action: pan-y）。
+
+     2026-09-01 (UI調整): ユーザーからの追加フィードバックを受けて調整。
+     ・10秒送り/戻しボタンを、1秒送り/戻し・再生・開始/終了位置へ移動と同じ1行に統合。
+       1秒/10秒ボタンはアイコンのみ（テキストラベルを廃止）とし、二重矢印(≪/≫)で
+       10秒側と1秒側を区別できるようにした。
+     ・上記に伴い、ボタンを押すと動画の中央に「◀1秒」「10秒 ▶▶」等のバッジが一瞬
+       (700ms)表示されるようにした。ラベルを消した分は、この一瞬のフィードバックで
+       何をしたか分かるようにしている。
+     ・動画を左右になぞっている間、なぞっている位置の再生時刻（例: 1:23.4）を
+       動画中央に表示するようにした。指を離すと0.6秒表示してからフェードアウトする。
+
+     2026-09-01 (機能追加): 全画面表示モードを追加。
+     ・動画プレビューの左下に全画面表示の切り替えアイコン（拡大⇄縮小）を新設。
+     ・ONにすると、ヘッダーと下部タブバー（クリップ作成/保存先設定/保存済み一覧）を
+       非表示にし、空いた分クリップ作成画面が画面いっぱいに広がる。動画自体の
+       最大高さも拡大（46vh→62vh）。
+     ・再生/1秒10秒送り戻し/開始・終了位置へ移動の行（stepRow）は、全画面表示中は
+       DOM上で動画（video-wrap）の中へ一時的に移動させ、動画の下端に重なる半透明の
+       帯として表示する（「ボタンは動画の上に重なる形で操作する」という要望どおり）。
+       終了時は元の位置（DOM上の親・直後の兄弟要素）へ正確に戻す。トリムバー・
+       「この瞬間を開始/終了に」・保存ボタンは従来どおり動画のすぐ下に表示したまま。
+     ・stepRowの移動はDOMノードの再配置（appendChild）のみで行っており、ボタンに
+       登録済みのイベントリスナーはそのまま保持される（再登録は不要）。
+     ・再配置ロジックはjsdomを使ったDOMテストで、全画面のON/OFFを複数回繰り返しても
+       元の位置に正確に戻ることを確認済み。
+
+     2026-09-01 (修正・機能追加): 全画面表示モードをv2に刷新。
+     ・「動画が全画面表示になっていない」「全画面ボタンが緑の旗マークと重なる」という
+       フィードバックを受けて対応。
+     ・#videoWrap を position:fixed で画面全体に固定表示するようにし、動画自体が
+       実際に画面いっぱいに表示されるようにした（object-fit:containで黒帯レターボックス）。
+       あわせて対応環境では requestFullscreen() も呼び出し、ブラウザのアドレスバー等も
+       隠れる本来の全画面表示になるようにした（非対応環境・失敗時もfixed表示により
+       画面いっぱいの見た目は保たれる）。
+     ・従来はstepRow（再生/送り戻し行）のみを動画に重ねていたが、v2ではトリムバー
+       （開始/終了つまみ・ミニマップ）・「この瞬間を開始/終了に」・保存ボタン
+       （通常保存/Nice/Fun/静止画）まで含めた操作系すべてを、動画下端の半透明パネル
+       （#fsControlPanel）へまとめて重ねるようにした。動画を選び直す/2倍速/全画面終了の
+       3つの丸いアイコンボタンは、パネルと重ならないよう上端の1列（全画面終了=左端、
+       2倍速・動画を選び直す=右側）にまとめて配置し直し、これが今回の重なり不具合の
+       直接の修正箇所。
+     ・パネルは内容が画面に収まりきらない縦長でない端末でもスクロールできるよう
+       max-height + overflow-y:autoでフォールバックしている。
+     ・Androidの「戻る」操作等でブラウザ側の全画面表示だけが解除された場合に備え、
+       fullscreenchangeイベントを監視してアプリ側の表示状態も自動的に追従させる処理を追加。
+     ・移動対象が1要素から6要素（stepRow/seekBlock/zoomControls/durLine/markRow/
+       保存カード）に増えたため、要素ごとの元の位置（親要素・直後の兄弟要素）を
+       記録した上で、復元時は記録した順と逆順に戻す方式に変更（先に戻した要素を
+       基準に後続の要素を正しい位置へ挿入できるようにするため）。
+
+     2026-09-01 (修正): 全画面表示モードの表示崩れを修正（v2→v3）。
+     ・実機（ランドスケープ表示）のスクリーンショットで、「動画が全体表示され
+       ていない」「全画面終了アイコンが✂バッジと重なっている」との指摘を受けて修正。
+     ・原因1：#videoWrapをflexboxにして動画とコントロールパネルでスペースを
+       分け合う実装だったため、パネルの分だけ動画の表示サイズが縮んでしまっていた。
+       動画を position:absolute; inset:0 で常に画面いっぱい(100%×100%)に表示させ、
+       コントロールパネルはその「上」に絶対配置で重ねる形に変更。パネルの高さは
+       もう動画の表示サイズに一切影響しない。
+     ・原因2：全画面終了アイコンを左上（range-badge「✂ここが切り取り範囲です」と
+       同じ位置）に配置してしまっていたため重なっていた。全画面終了・2倍速・
+       動画を選び直すの3アイコンを右上の1列にまとめ、range-badgeとは絶対に
+       ぶつからないようにした。
+
+     2026-09-01 (修正): 全画面表示モードのコントロールパネルを半透明化（v3→v4）。
+     ・「横向きの全画面にすると操作画面で動画が隠れている。ボタン等を透明系にして
+       参考画像に近づけてほしい」とのフィードバックを受けて修正。
+     ・原因：v3で動画自体は画面いっぱい(100%×100%)に表示されるよう直したが、
+       #fsControlPanel の背景がほぼ不透明（下側65%がalpha .96）だったため、
+       結果的に動画の下半分が見た目上ほぼ隠れてしまっていた。
+     ・#fsControlPanel 自体の背景はごく薄いグラデーション（下端付近のみうっすら
+       黒みがかる程度）に変更し、代わりにボタン・トリムバー等の個々の要素を
+       半透明化（backdrop-filterのぼかし＋各色の半透明版の背景＋影）することで、
+       視認性を保ちながら隙間から動画が透けて見えるようにした（参考いただいた
+       別アプリのボタンが動画に浮かんで見えるスタイルに近づけている）。
+     ・これらの上書きはすべて #fsControlPanel を起点にしたIDセレクタで指定して
+       いるため、通常表示（全画面でないとき）の見た目には一切影響しない。
+
+     2026-09-01 (機能追加・簡略化): 全画面表示のレイアウトを指定どおりに再構成（v4→v5）。
+     ・ユーザーから、参考アプリの実際のスクリーンショットとともに、全画面時のレイアウトを
+       次の5点で指定するフィードバックがあった：
+       (1)左上に「切り取り範囲です」バッジ、(2)右上の読み込み直し/2倍速/全画面終了ボタンは
+       そのまま、(3)シークバーは開始/終了/再生位置を表示しつつ全画面時は再生位置のみ
+       ドラッグ可能でよい、(4)開始/終了位置へ移動ボタン(旗)を再生ボタン行の両端に、
+       (5)通常保存/Nice/Fun/静止画ボタンを並べる。
+     ・(1)(2)は既存のv3〜v4の実装のまま。(4)(5)も既存のstepRow・保存カードをそのまま
+       流用（stepRowの両端には元々jumpStartBtn/jumpEndBtnの旗ボタンがある）。
+     ・全画面時にオーバーレイパネルへ移動する要素を、従来の6要素
+       （stepRow/seekBlock/zoomControls/durLine/markRow/保存カード）から、指定された
+       構成に合わせて3要素（stepRow・seekBlock・保存カード）に絞った。ズームコントロール・
+       切り出し長さ表示・「この瞬間を開始/終了に」ボタンは全画面表示中は表示しない
+       （通常表示に戻ってから使う想定）。パネルの内容が減ったことで、パネルの高さも
+       自然に小さくなり、動画がより広く見えるようにもなっている。
+     ・(3)に対応するため、トリムバー（rangeWrap）のポインター操作に全画面判定を追加。
+       全画面表示中は、シークバーへのタッチを常に「再生位置のシーク」として扱い、
+       開始/終了ハンドルのドラッグ微調整・2本指ピンチズームは無効化した
+       （通常表示時の挙動・判定ロジックには一切変更なし）。
+
+     2026-09-01 (修正): 全画面表示の見た目を参考画像に近づける（v5→v6）。
+     ・「修正後のスクリーンショットが参考画像と全然違う」との指摘。原因は主に2つ：
+       (1) 再生ボタン（playPauseBtn）が通常表示と同じ flex:1 のままだったため、
+       行の中で伸びきって画面幅いっぱいの巨大なピルになっていた。
+       (2) ボタン・トリムバーに backdrop-filter のぼかしをかけていたため、
+       小さなアイコンには効いても、伸びきった再生ボタンやトリムバーでは
+       「曇りガラスの塊」のように見えてしまい、参考画像のような細いバー／
+       小さく浮かぶボタンという印象にならなかった。
+     ・#fsControlPanel 内に限定して、再生ボタンを flex:0（伸びない・内容に応じた
+       幅）に変更し、step-row を justify-content:space-between にして他の
+       アイコンボタンと同様に行内に均等配置。これで参考画像のように、行の中に
+       複数の小さいボタンが間隔を空けて並ぶ見た目になる。
+     ・backdrop-filterのぼかしは全廃し、各ボタンは薄い半透明の背景色＋影のみで
+       視認性を確保する方式に統一。トリムバーの背景も、つまみ・再生位置線・
+       開始終了の帯はそのまま残しつつ、バー自体はごく薄い(alpha .08)ほぼ透明な
+       見た目にし、太い帯というより細いラインに近い印象にした。
+     ・パネル自体の背景グラデーションもさらに薄く・短く（フェードが終わる高さを
+       72%→55%に）調整し、動画がより広い範囲で透けて見えるようにした。
+     ・今回もCSSの見た目調整のみで、全画面のON/OFFロジック・DOM再配置・
+       シークバーの全画面判定（v5）自体は変更していない。構文チェック・
+       id参照整合性を再確認済み。
+
+     2026-09-01 (機能追加・修正): 全画面表示のボタン配置をさらに調整し、
+     A-Bループ再生機能を追加（v6→v7）。
+     ・「ボタン類が画面下部に集まっていない」「シークバーが帯っぽい」「保存
+       ラベルが不要」「開始/終了位置・A-Bリピート・解除ボタンを保存ボタンの
+       上に追加してほしい」「全画面オフの横向き時にタブバー等が邪魔」という
+       5点のフィードバックを受けて対応。
+     ・#fsControlPanel 内の各行の余白・フォントサイズをさらに詰め、パネル
+       全体がより下に寄って画面下部にコンパクトに収まるように調整した
+       （パネルの最大高さ・行間マージンを縮小）。
+     ・トリムバー（#fsControlPanel内）を帯状（7px）から、より線に近い見た目
+       （高さそのものは操作性のため大きく変えていないが、背景をほぼ透明にし
+       つまみ・再生位置線を細く）に調整。時刻バッジ・ミニマップは全画面時は
+       非表示のまま。
+     ・#fsControlPanel 内の保存カードの見出し（h2「保存」ラベル）を非表示化
+       （display:none）し、ボタンだけが並ぶ見た目にした。
+     ・新規に「開始位置／終了位置／A-Bループ／解除」の4ボタン行（#fsAbRow）
+       を追加し、保存ボタンの行の直上に配置。開始位置/終了位置ボタンは既存の
+       markStartBtn/markEndBtn（5秒自動調整ロジック込み）へのクリック委譲、
+       A-Bループ/解除は今回新規実装したプレビュー内ループ再生機能
+       （state.startTime～state.endTime を previewVideo の timeupdate で監視し、
+       endTime付近まで再生されたらstartTimeへシークして再生を再継続する）。
+       クリップ抽出に使う既存のstartTime/endTimeをそのまま流用しているため、
+       別途A/Bマーカーの状態を持つ必要がない。全画面表示を終了すると、UIごと
+       非表示になり操作できなくなるため、終了時に自動的にループを解除する
+       処理も追加した（applyFsModeOff内）。この行は通常表示では.fs-only
+       により非表示（#fsControlPanel内に移動して初めて表示される）。
+     ・FS_MOVABLESが3要素→4要素（fsAbRowElを追加）になったため、jsdomによる
+       DOM再配置round-tripテストを新しい構成向けに書き直して再実行し、全画面
+       のON/OFFを複数回繰り返しても各要素が元の親・直後の兄弟要素へ正確に
+       戻ることを再確認済み。
+     ・通常表示（全画面でない）時に、スマホを横向きにした際タブバー・ヘッダー
+       がクリップ作成画面の操作領域を圧迫して邪魔になる問題に対応するため、
+       「横向き かつ 画面高が低い（max-height:500px）」場合専用のメディア
+       クエリを追加し、通常表示時のみヘッダー・タブバーを縮小表示するように
+       した（全画面表示時のレイアウトには影響なし。全画面時はヘッダー・
+       タブバー自体がそもそも非表示のため）。
+
+     2026-09-01 (不具合修正): 通常表示でA-Bループ行が表示されてしまう不具合を
+     修正（v7の直後）。
+     ・ユーザーから「この瞬間を〜のボタンの行とA-Bループも含んだボタンの行は
+       全画面モードのオンオフで表示非表示を切り替えてほしい」との指摘。
+       実機スクリーンショットで、通常表示（全画面オフ）なのに新設した
+       「開始位置/終了位置/A-Bループ/解除」の4ボタン行（#fsAbRow）が
+       「この瞬間を開始/終了に」行の下にそのまま表示されてしまっていた。
+     ・原因はCSSの詳細度（specificity）の問題。#fsAbRowを通常表示で隠すための
+       `.fs-only { display: none; }` と、行の共通クラス `.row { display: flex; }`
+       がどちらも単一クラスセレクタで詳細度が同じだったため、CSS内で後に
+       書かれていた`.row`の指定が後勝ちで`.fs-only`を打ち消してしまっていた。
+     ・`.fs-only { display: none !important; }` / `#fsControlPanel .fs-only
+       { display: flex !important; }` とし、!importantで明示的に優先順位を
+       固定することで、通常表示では確実に非表示、全画面表示中は確実に表示
+       されるようにした。
+     ・あわせて、「この瞬間を開始/終了に」行（.mark-row）についても、
+       全画面中に#fsAbRowの同等ボタンへ役割が引き継がれるため
+       `.fs-mode .mark-row { display: none; }` を追加し、全画面表示中は
+       明示的に非表示にした（従来は動画のfixedオーバーレイに隠れて見た目上は
+       隠れていたが、DOM上は非表示になっていなかったため、今回明示化した）。
+       これにより「この瞬間を〜」行は通常表示のみ、#fsAbRow（開始位置/終了位置/
+       A-Bループ/解除）は全画面表示のみに、それぞれ確実に表示が切り替わる
+       ようになった。
+     ・構文チェック・id参照整合性を再確認済み（DOM再配置ロジック自体は
+       変更していないため、v7で実施したjsdomテストは有効）。
+
+     2026-09-01 (改善): 全画面表示のボタンをさらに調整（v8）。
+     ・実機スクリーンショットでの「いい感じになってきた」というフィードバックに
+       続き、4点の追加要望があった：(1) 再生ボタンの行を中央に集めてほしい、
+       (2) 開始位置行のボタンのオン/オフが分かりづらい、(3) 開始位置/終了位置は
+       押したら秒数を表示してほしい（押した意味が分かるように）、(4) 下部ボタン
+       全体をもう少しコンパクトに。
+     ・(1) 再生/送り戻し行（stepRow）は、これまで#fsControlPanel内で
+       justify-content:space-betweenにより旗ボタンが画面の両端まで離れて
+       散らばって見えていた。centerに変更し、ボタン同士の間隔(gap)も指定して、
+       画面下部の中央にひとまとまりで集まるようにした。
+     ・(2) 原因を調査したところ、CSSの詳細度の不具合を発見：A-BループボタンON時に
+       付与される.active-toggleクラスの背景色（.btn.outline.active-toggle、
+       クラス3つ）が、#fsControlPanel .btn.outline（ID+クラス2つ）という別の
+       上書きルールに詳細度で負けて常に打ち消されてしまっており、ONにしても
+       見た目が変わっていなかった。#fsControlPanel .btn.outline.active-toggle
+       （ID+クラス3つ）を追加してこの上書きルールより優先させ、確実にハイライト
+       されるようにした。あわせて、色の変化だけに頼らずJS側でボタンの文言自体も
+       「A-Bループ」⇄「■ ループ再生中」で切り替えるようにし（setAbLoop内）、
+       半透明パネル上でも一目でON/OFFが分かるようにした。
+     ・(3) 「開始位置」「終了位置」ボタンに、ラベルの下へ現在の開始/終了時刻
+       （例: 0:12.3）を表示する2段構成にした（.fs-mark-btn/.fs-mark-time）。
+       この時刻表示は、開始/終了時刻が変わるたびに必ず呼ばれる既存の
+       updateLabels()関数に相乗りして更新しているため、このボタンを押した
+       時だけでなく、通常表示側でハンドルをドラッグして調整した場合等も含め、
+       常に実際の値と同期している。
+     ・(4) #fsControlPanelの上下パディング・各行の上マージン・A-Bループ行の
+       ボタンパディング・アイコンボタンのサイズ（38px→32px）等をそれぞれ
+       一段階ずつ縮小し、ボタン全体がより小さく・下寄りにまとまるようにした。
+     ・DOM構造・再配置ロジック自体は変更していないため、FS_MOVABLESに関する
+       jsdomテストは引き続き有効。構文チェック・id参照整合性を再確認済み。
+       実機での見え方（特にA-Bループのハイライト・コンパクトさ）は次回確認予定。
+
+     2026-09-01 (機能追加): 全画面表示にした際、画面の向きを横向きに固定する
+     機能を追加（v9）。
+     ・ユーザーから「全画面モードにした際は画面を横向きに切り替えてほしい」との
+       要望があり追加。
+     ・Screen Orientation API（`screen.orientation.lock("landscape")`）を用いて、
+       全画面ボタンを押したタイミングで画面の向きを横向き（landscape、左右どちら
+       向きでも可）に固定するようにした。全画面表示を終了する（ボタンを押す／
+       Androidの「戻る」操作でネイティブ全画面が解除される、いずれの経路でも）と
+       `unlock()` を呼び、通常どおり端末の向きに追従する状態へ戻す
+       （`applyFsModeOff()` 内に集約）。
+     ・画面の向きロックは多くの環境で「文書が全画面表示中であること」が条件になる
+       ため、`requestElementFullscreen()`（ネイティブ全画面表示）の成否に関わらず
+       （成功後・失敗後どちらの経路でも）ベストエフォートで `lockLandscapeOrientation()`
+       を試すようにしている。iOS Safari等、Screen Orientation APIの
+       `lock`/`unlock` 自体が存在しない環境では何もせず無視して続行するため、
+       全画面表示（position:fixedによる疑似全画面含む）自体には影響しない。
+     ・DOM再配置ロジック・レイアウトCSSには変更を加えていないため、既存のjsdom
+       テストはそのまま有効。構文チェック・id参照整合性を再確認済み。実機では
+       ブラウザ・OSごとに対応状況が異なりうるため（特にiOS Safariでは非対応）、
+       Android実機での挙動を次回確認予定。
+
+     2026-09-02 (改善): 全画面表示のレイアウトを再編成（v10）。
+     ・「A-BループのON/OFFと解除ボタンが同じ動きになるので解除ボタンは不要。
+       代わりに何を割り当てるか相談したい」との相談を受け、選択肢（2倍速ボタン／
+       他の新機能案）を提示したところ、「解除ボタンは廃止した上で、レイアウトも
+       次のように見直してほしい」とのフィードバックがあった：
+       (1) 開始位置/終了位置/A-Bループを画面左上、「切り取り範囲です」バッジの
+       少し下に、ボタン横幅を小さくして配置。
+       (2) 再生ボタン・進む/戻るボタン等の行をシークバーと保存ボタン行の間に配置し、
+       各ボタンをもう少し大きめにする。2倍速ボタンを右上から再生ボタン行の右端へ
+       （他のボタン配置は変えず独立して追加）。
+     ・解除ボタン（abClearBtn）を廃止。A-Bループボタン自体がトグル（ONの状態で
+       もう一度押すとOFFになる）であるため機能が重複していたための整理。
+     ・(1) 開始位置/終了位置/A-Bループの行（#fsAbRow、3ボタンに削減）を、
+       これまでの下部パネル（#fsControlPanel）から切り離し、videoWrap直下へ
+       独立して配置する方式に変更。CSSは `.fs-mode #fsAbRow` を起点にした
+       絶対配置（range-badgeの直下、左上）にし、ボタンもflex:0の小さめのピルに
+       した。#fsControlPanelの外に出たことで、以前 `#fsControlPanel .btn.outline`
+       等のIDセレクタで行っていた半透明化・A-Bループのハイライトの上書きも、
+       同じ考え方のまま `.fs-mode #fsAbRow` 側に定義し直した。
+     ・(2) enterFsOverlay()の下部パネルへの追加順序を、従来の
+       stepRow→seekBlock→saveCardから、seekBlock→stepRow→saveCardに変更し、
+       再生ボタン等の行がシークバーと保存カードの間に来るようにした。
+       FS_MOVABLES配列自体（ホーム位置記録・復元用の並び）は実際のDOM上の並びと
+       一致させる必要があるため変更していない（並び順の意味が「復元用の記録順」と
+       「表示順」で別になった点に注意——表示順はenterFsOverlay内のappendChild呼び出し
+       順で個別に制御している）。
+     ・再生ボタン行のボタンサイズ・アイコンボタンサイズ（32px→36px）を一段階
+       大きくした（v8でコンパクト化しすぎていたための調整）。
+     ・2倍速ボタンは、動画右上のアイコン（speedBtn）を全画面表示中は非表示にし、
+       代わりに再生ボタン行の右端に新設した`fsSpeedBtn`（speedBtnへのクリック
+       委譲）で操作する方式にした。ON/OFFのハイライト（active-toggle）は
+       speedBtnのクリックハンドラ内でfsSpeedBtn側にも同期するようにしている。
+       右上に残る「動画を選び直す」アイコンは、空いた位置（speedBtnがあった
+       right:48px）へ詰めて配置し直した。
+     ・下部パネルの構成要素が変わった（fsAbRowが抜けた）ため、jsdomによる
+       DOM再配置round-tripテストを書き直して再実行し、全画面のON/OFFを複数回
+       繰り返しても各要素が元の親・直後の兄弟要素へ正確に戻ること、fsAbRowが
+       videoWrap直下・他3つがfsPanel内（seekBlock→stepRow→saveCardの順）に
+       正しく分かれて配置されることを確認済み。構文チェック・id参照整合性も
+       再確認済み。実機での見え方（特に左上のfsAbRowの視認性・大きくした
+       ボタンのバランス）は次回確認予定。
+
+     2026-09-02 (改善): 全画面表示の倍速ボタン・再生ボタン行の配置を微調整（v11）。
+     ・倍速ボタン（fsSpeedBtn）を「≫」アイコンから「倍速」というテキストラベルに
+       変更（アイコンのままだと押した意味が分かりづらいとの指摘）。表示上は
+       playPauseBtnと同じ.btn.secondaryスタイルのピルボタンにした。
+     ・再生系7ボタン（開始/終了位置へ移動・10秒/1秒送り戻し・再生）を新設の
+       .step-row-mainという内側のdivにまとめ、.step-rowの直接の子要素を
+       [.step-row-main, fsSpeedBtn]の2つだけにした。全画面表示では
+       #fsControlPanel .step-row-mainをflex:1 1 autoで伸ばして行の余白を
+       すべて吸収させ、その中でjustify-content:centerにより中央ぞろいにする。
+       fsSpeedBtnは.step-row-mainの外側の兄弟要素なので、伸びた
+       .step-row-mainの右隣＝行の右端に自然に押し出される（単純に
+       margin-left:autoをfsSpeedBtnに付けるだけだと再生系ボタン側が左に
+       寄ってしまい中央ぞろいにならないため、この入れ子構造にした）。
+     ・通常表示（.step-row-mainの基本CSSはdisplay:flex; flex:1 1 auto）では
+       この入れ子化による見た目の変化はない（fsSpeedBtnは.fs-onlyのままなので
+       非表示）。stepRowElはdocument.querySelector(".step-row")のままで
+       変わらず、FS_MOVABLES・enterFsOverlay()のロジックには一切手を
+       入れていない。
+     ・fsSpeedBtnのON時ハイライト（active-toggle）は、アイコン→テキスト化に
+       伴い.icon-btnから.btn.secondaryに変わったため、既存の
+       #fsControlPanel .icon-btn.active-toggleルールではもう当たらなくなっていた。
+       #fsControlPanel #fsSpeedBtn.active-toggle（IDセレクタ）に差し替えて、
+       #fsControlPanel .btn.secondaryの背景指定に負けないようにした
+       （これまでと同様のCSS詳細度対策）。
+
+     2026-09-02 (改善): 再生ボタン行を行全体の真ん中に見せるよう微調整（v12）。
+     ・v11の.step-row-main（flex:1 + justify-content:center）方式は、行の中で
+       step-row-mainだけを中央ぞろいにする方式だったため、右側にfsSpeedBtnの
+       幅がある分だけstep-row-mainの箱自体が左に寄り、結果として再生ボタン群が
+       画面（行）全体で見ると心持ち左寄りに見えてしまっていた（ユーザーからの
+       指摘：「再生ボタンが中央にくるようにできませんか？倍速ボタンの反対側に
+       見えない＆反応しないパディングの役割を果たすボタンを追加するとかしても
+       いいと思ってます」）。
+     ・ユーザー提案のとおり、fsSpeedBtnと同じ見た目・同じ幅の非表示ダミー要素
+       #stepRowSpacer（テキストは同じ「倍速」、divで実装）を.step-row-mainの
+       左側（.step-rowの先頭）に追加した。visibility:hidden（displayではなく）
+       でレイアウト上の幅だけ確保しつつ見た目を消し、pointer-events:none と
+       aria-hidden="true" でタップ・スクリーンリーダー双方から見えない存在に
+       している。これにより.step-rowの子要素が
+       [spacer(倍速幅)] - [.step-row-main(flex:1, 中央ぞろい)] - [fsSpeedBtn(倍速幅)]
+       という左右対称の3分割になり、中央の.step-row-mainの箱自体が行の真ん中に
+       来るため、中の再生ボタン群も見た目どおり画面中央に来るようになった。
+     ・通常表示ではspacerも.fs-only（display:none !important）で完全に
+       レイアウトから除外されるため、影響は一切ない。DOM再配置ロジック
+       （FS_MOVABLES・enterFsOverlay()）・stepRowElの取得方法にも変更なし。
+       構文チェック・重複id・$()参照の整合性を再確認済み。
+
+     2026-09-02 (改善): 全画面表示中の保存進捗・完了通知／3秒送り戻しボタンを追加（v13）。
+     ユーザーから2点の追加要望：(1) 全画面モードで保存する時に進捗バーや保存完了の通知が
+     見えるようにしてほしい、(2) 1秒・10秒だけでなく3秒進む/戻るボタンも追加してほしい。
+     これに沿ってv13として対応した：
+     ・(1) 保存の進捗オーバーレイ（#busyOverlay、通常保存/Nice/Fun/静止画すべてで共通）と
+       完了・失敗トースト（#toast）は、どちらも通常はbody直下に置かれたposition:fixed要素で、
+       z-indexだけでvideoWrapの上に重ねて見せる設計だった。ところが、ネイティブの
+       Fullscreen API（requestFullscreen(videoWrap)）が有効な環境では、全画面中は
+       videoWrap「の子孫要素」以外は一切描画されないというブラウザの仕様上の制約があり、
+       videoWrapの外にいるbusyOverlay/toastは全画面中に完全に不可視になっていた
+       （CSSのz-index計算は正しくても、そもそも描画対象から除外されてしまう）。
+       これを解消するため、他のFS_MOVABLES（stepRow・seekBlock・fsAbRow・saveCard）と
+       全く同じ「全画面中だけvideoWrap配下へ一時的に移動し、終了時に元の位置へ正確に
+       戻す」パターンをbusyOverlay・toastにも適用した。どちらもposition:fixedのままなので
+       画面上の見た目の位置（進捗バーは画面中央、トーストは画面下部）は移動の前後で
+       変化しない。FS_MOVABLESは4要素→6要素（stepRow→seekBlock→fsAbRow→saveCard→
+       busyOverlay→toast、実際のDOM上の並び順のまま）になった。
+     ・busyOverlay・toastはFS_MOVABLES内の他の要素と異なり、#clipEditor（クリップ作成
+       画面）の外、body直下という全く別の場所に元々あるため、jsdomによるDOM再配置
+       round-tripテストを新しい6要素構成向けに書き直して再実行し、全画面のON/OFFを
+       複数回繰り返しても6要素すべてが元の親・直後の兄弟要素へ正確に戻ること、全画面中は
+       busyOverlay・toastがvideoWrap直下（fsAbRowの後、#fsControlPanelより後）に正しく
+       移動していることを確認済み（72アサーション全てパス）。
+     ・(2) 再生系ボタン行（.step-row-main）に、既存の10秒・1秒送り戻しに加えて3秒送り戻し
+       ボタン（step3BackBtn/step3FwdBtn）を追加した。1秒（単矢印アイコン）・10秒（二重矢印
+       アイコン）と紛らわしくならないよう、アイコンではなく「◀3」「3▶」という数字テキストで
+       直接見分けられるようにしている（クリック時は既存の1秒/10秒ボタンと同じ
+       flashScrubBadge()の仕組みで「◀ 3秒」「3秒 ▶」と動画上に一瞬表示する）。
+       ボタン数が7→9に増えたことによる幅の狭い端末での横はみ出しを防ぐため、
+       .step-row-mainにflex-wrap:wrapを追加（入りきらない分は自動的に2行目へ折り返す。
+       横幅に余裕がある全画面表示中や大きめの端末では従来どおり1行に収まる）、
+       あわせてアイコンボタンのサイズ（38px→34px）・行間gap（6px→5px）を通常表示側のみ
+       一段階詰めて、単一行に収まりやすくした（全画面側の36pxサイズ・10pxgapは変更なし。
+       全画面は横向きで横幅に余裕があるため）。
+     ・DOM再配置ロジック（FS_MOVABLES・enterFsOverlay()）以外の部分（3秒ボタン追加）は
+       stepRowElの取得方法（document.querySelector(".step-row")のまま）に影響しないため、
+       再テストの必要はない。構文チェック・重複id・$()参照の整合性を再確認済み。
+       実機での見え方（特に3秒ボタンの視認性・狭い端末での折り返しの有無）は次回確認予定。
+     ============================================================ -->
+<style>
+  :root {
+    --accent: #2f6fed;
+    --accent-dark: #1f4fb0;
+    --green: #2f8f4e;
+    --orange: #e0563f;
+    --bg: #0f1115;
+    --card: #171a21;
+    --card-2: #1f232c;
+    --text: #eef0f4;
+    --text-dim: #9aa1ad;
+    --border: #2a2f3a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior-y: contain;
+  }
+  #app {
+    display: none; flex-direction: column;
+    height: 100vh; height: 100dvh;
+  }
+  #app.ready { display: flex; }
+  header {
+    padding: 14px 16px 10px; padding-top: calc(14px + env(safe-area-inset-top));
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+  }
+  header .logo {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px; color: white; flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header p { margin: 1px 0 0; font-size: 11px; color: var(--text-dim); }
+
+  main {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 16px 16px calc(90px + env(safe-area-inset-bottom));
+  }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 10px; color: var(--text-dim); font-weight: 600; letter-spacing: .02em; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    border: none; border-radius: 12px; padding: 13px 16px; font-size: 15px; font-weight: 700;
+    cursor: pointer; color: white; background: var(--accent); width: 100%;
+    transition: transform .08s ease, opacity .15s ease;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn.secondary { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+  .btn.green { background: var(--green); }
+  .btn.orange { background: var(--orange); }
+  .btn.secondary.active-toggle { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn:disabled { opacity: .4; pointer-events: none; }
+  .btn.small { padding: 9px 12px; font-size: 13px; width: auto; }
+
+  /* アウトライン系ボタン（縁取りのみ・塗りつぶしなし）。全画面表示中の
+     「開始位置/終了位置/A-Bループ/解除」の4ボタン行で使用 */
+  .btn.outline { background: transparent; border: 1.5px solid var(--border); color: var(--text); }
+  .btn.outline.outline-green { border-color: var(--green); color: var(--green); }
+  .btn.outline.outline-orange { border-color: var(--orange); color: var(--orange); }
+  .btn.outline.outline-accent { border-color: var(--accent); color: var(--accent); }
+  .btn.outline.active-toggle { background: rgba(47,111,237,.28); border-color: var(--accent); color: #fff; }
+
+  /* 開始位置/終了位置ボタン：ラベルの下に現在の開始/終了時刻を表示し、
+     押した結果（何秒に設定されたか）がその場で分かるようにする */
+  .fs-mark-btn { flex-direction: column; gap: 2px; line-height: 1.05; }
+  .fs-mark-time { font-size: 10px; font-weight: 600; opacity: .85; font-variant-numeric: tabular-nums; }
+
+  /* 全画面表示（#fsControlPanel）でのみ表示する要素。通常表示では常に非表示。
+     .row（display:flexをつける、後方で定義される汎用クラス）等、詳細度が同じ
+     他のクラスに後勝ちで打ち消されないよう !important を付けている */
+  .fs-only { display: none !important; }
+
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .save-row { gap: 6px; }
+  .save-row .btn { font-size: 12px; padding: 12px 4px; white-space: nowrap; }
+
+  video.preview {
+    width: 100%; border-radius: 14px 14px 10px 10px; background: #000; display: block;
+    max-height: 48vh; object-fit: contain;
+    /* 左右になぞって早送り/巻き戻しできるように。縦スワイプ（ページスクロール）はそのまま通す */
+    touch-action: pan-y; -webkit-user-drag: none; user-select: none; cursor: grab;
+  }
+  video.preview.scrubbing { cursor: grabbing; }
+
+  /* カードの内側パディング分だけ外側にはみ出させ、動画をカード幅いっぱいに大きく見せる */
+  .video-wrap { position: relative; margin: -14px -14px 0 -14px; }
+  .range-badge {
+    position: absolute; top: 10px; left: 10px;
+    display: none; align-items: center; gap: 5px;
+    background: rgba(224, 86, 63, .94); color: white;
+    font-size: 12px; font-weight: 700; letter-spacing: .01em;
+    padding: 6px 11px; border-radius: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    pointer-events: none;
+  }
+  .range-badge.show { display: flex; }
+
+  /* なぞり操作中の再生位置表示／1秒・10秒送り戻しボタンを押したときの一瞬のフィードバック */
+  .scrub-badge {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .75); color: #fff;
+    font-size: 16px; font-weight: 800; letter-spacing: .02em;
+    padding: 9px 18px; border-radius: 24px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.45);
+    pointer-events: none; z-index: 6; white-space: nowrap;
+  }
+  .scrub-badge.show { display: flex; }
+
+  /* 動画プレビューに重ねるアイコンボタン（動画を選び直す／2倍速） */
+  .overlay-icon-btn {
+    position: absolute; width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(23,26,33,.88); border: 1px solid var(--border); color: var(--text);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+    top: 8px; right: 8px;
+  }
+  .overlay-icon-btn-bottom { top: auto; bottom: 8px; }
+  .overlay-icon-btn-left { left: 8px; right: auto; }
+  .overlay-icon-btn.active-toggle { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* 全画面表示トグル（アイコンは通常時=拡大、全画面時=縮小に自動で切り替わる） */
+  #fullscreenBtn .ic-compress { display: none; }
+  .fs-mode #fullscreenBtn .ic-expand { display: none; }
+  .fs-mode #fullscreenBtn .ic-compress { display: block; }
+
+  /* ===== 全画面表示モード（v2） =====
+     #videoWrap を画面全体に固定表示して動画を実際に画面いっぱいに表示し、
+     操作系のコントロール一式（再生/送り戻し・トリムバー・この瞬間を開始/終了に・
+     保存ボタン）は #fsControlPanel として動画の下端に半透明パネルで重ねて表示する。
+     ヘッダー／下部タブバーは（fixed表示に隠れるため実害はないが）念のため非表示にする。 */
+  .fs-mode header,
+  .fs-mode nav.tabbar {
+    display: none;
+  }
+  .fs-mode #videoWrap {
+    position: fixed; inset: 0; z-index: 60;
+    margin: 0; background: #000;
+  }
+  /* 動画自体は常に画面いっぱい(横100%×縦100%)を占有させる。
+     コントロールパネルは flex でスペースを分け合うのではなく、動画の上に
+     絶対配置で「重ねる」ことで、動画の表示サイズが操作パネルに食われないようにする
+     （旧v2でパネルの高さ分だけ動画が縮んでしまっていた不具合の修正） */
+  .fs-mode video.preview {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; max-height: none;
+    border-radius: 0; object-fit: contain;
+  }
+  .fs-mode .range-badge {
+    top: calc(10px + env(safe-area-inset-top));
+  }
+  /* 動画に重ねるアイコンは、全画面時は右上の1列にまとめる。
+     左上の range-badge（切り取り範囲表示）や下端のコントロールパネルと
+     絶対にぶつからない位置（旧v2で全画面終了アイコンをrange-badgeと同じ
+     左上に置いてしまい重なっていた不具合の修正）。全画面終了アイコンを
+     画面端に一番近い位置に置く。
+     2倍速ボタン（speedBtn）は、全画面表示中は右上ではなく再生ボタン行の
+     右端（fsSpeedBtn、既存speedBtnへのクリック委譲）に独立して配置し直す
+     ため、右上からは非表示にする。空いた分、動画を選び直すアイコンを
+     speedBtnのあった位置まで詰める。 */
+  .fs-mode #fullscreenBtn {
+    top: calc(8px + env(safe-area-inset-top)); bottom: auto;
+    right: calc(8px + env(safe-area-inset-right)); left: auto;
+  }
+  .fs-mode #speedBtn { display: none; }
+  .fs-mode #reselectBtn {
+    top: calc(8px + env(safe-area-inset-top));
+    right: calc(48px + env(safe-area-inset-right));
+  }
+
+  /* 開始位置/終了位置/A-Bループの行は、下部パネルではなく左上（切り取り範囲
+     バッジのすぐ下）に独立して配置する。解除ボタンは廃止（A-Bループボタン
+     自体がトグルのため機能が重複していた）。横幅を抑えた小さめのピルボタンに
+     して、動画を隠しすぎないようにしている。
+     #fsControlPanel の外（videoWrap直下）に配置されるため、他の全画面用CSSと
+     違い #fsControlPanel を起点にしたIDセレクタではなく .fs-mode #fsAbRow を
+     起点にしている。.fs-only の display:none!important をID詳細度で上書きする
+     必要があるため、こちらも !important を付けている（v7の.fs-only修正と同じ
+     考え方）。 */
+  .fs-mode #fsAbRow {
+    display: flex !important;
+    position: absolute;
+    top: calc(46px + env(safe-area-inset-top));
+    left: calc(10px + env(safe-area-inset-left));
+    right: auto; width: auto;
+    gap: 6px; margin: 0;
+  }
+  .fs-mode #fsAbRow .btn {
+    flex: 0 0 auto; width: auto; padding: 6px 10px; font-size: 10.5px;
+    background: rgba(10,12,16,.5); box-shadow: 0 1px 6px rgba(0,0,0,.55);
+  }
+  .fs-mode #fsAbRow .btn.outline.active-toggle {
+    background: rgba(47,111,237,.6); border-color: var(--accent); color: #fff;
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.35) inset, 0 1px 6px rgba(0,0,0,.55);
+  }
+
+  /* 全画面表示中、動画の下端に「重ねる」コントロール一式のパネル。
+     position:absoluteで動画の上に浮かせているだけなので、パネルの高さは
+     動画自体の表示サイズに一切影響しない。
+     パネル自体の背景はごく薄く（ほぼ透明）にとどめ、実際の視認性は各ボタンの
+     影で確保する（参考いただいた別アプリのように、動画がボタンの隙間から
+     しっかり透けて見える見た目にするため）。 */
+  #fsControlPanel {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    max-height: 64vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: linear-gradient(to top, rgba(0,0,0,.28) 0%, rgba(0,0,0,.1) 30%, rgba(0,0,0,0) 55%);
+    padding: 6px 14px calc(8px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
+  }
+  /* ボタン類をできるだけ下に寄せてコンパクトにまとめる（各要素間の余白を
+     通常表示よりさらに詰め、動画がより広く見えるようにする）。
+     表示順（上から）: シークバー → 再生/送り戻し行 → 保存カード
+     （enterFsOverlay()のappendChild順を参照。以前はstepRowが最初だったが、
+     「シークバーと保存ボタン行の間に配置してほしい」との要望でこの順に変更） */
+  #fsControlPanel .card {
+    background: transparent; border: none; padding: 0; margin: 10px 0 0;
+  }
+  #fsControlPanel .card h2 { display: none; } /* 「保存」ラベルは全画面時は不要 */
+  #fsControlPanel .seek-block { margin-top: 0; height: 14px; }
+  #fsControlPanel .step-row { margin-top: 10px; }
+  #fsControlPanel .time-badge { display: none; } /* 帯を薄い線に簡略化する分、数値バッジは省略 */
+
+  /* 全画面表示（#fsControlPanel）でのみ「開始位置/終了位置/A-Bループ/解除」の
+     4ボタン行を表示する（.fs-onlyの!importantをID詳細度で上書き） */
+  #fsControlPanel .fs-only { display: flex !important; }
+
+  /* #stepRowSpacer: 再生ボタン群（.step-row-main）を行全体の真ん中に見せるための
+     見えない・押せないダミー要素。fsSpeedBtnと全く同じ見た目（テキスト「倍速」・
+     同じクラス）で幅を一致させた上で、visibility:hiddenで見た目だけ消し、
+     pointer-events:noneでタップも無効化している（display:noneではなく
+     visibility:hiddenなので、レイアウト上の幅はそのまま確保され続ける）。 */
+  #fsControlPanel #stepRowSpacer {
+    visibility: hidden; pointer-events: none;
+  }
+  /* 全画面表示中のボタン・トリムバー類を半透明化し、動画がうっすら透けて
+     見えるようにする（IDセレクタでの上書きなので、通常時の見た目には影響しない）。
+     ぼかし(backdrop-filter)は大きなボタンにかけると「曇りガラスの塊」のように
+     見えて動画を隠してしまうため使わず、影と薄い背景色だけで視認性を確保する。 */
+  #fsControlPanel .btn,
+  #fsControlPanel .icon-btn,
+  #fsControlPanel .zoom-pan-btn {
+    box-shadow: 0 1px 6px rgba(0,0,0,.55);
+  }
+  #fsControlPanel .btn.secondary,
+  #fsControlPanel .icon-btn-step,
+  #fsControlPanel .zoom-pan-btn {
+    background: rgba(20,22,28,.42); border-color: rgba(255,255,255,.22);
+  }
+  #fsControlPanel .icon-btn-outline-start { background: rgba(20,22,28,.3); }
+  #fsControlPanel .icon-btn-outline-end { background: rgba(20,22,28,.3); }
+  #fsControlPanel .btn.green { background: rgba(47,143,78,.55); }
+  #fsControlPanel .btn.orange { background: rgba(224,86,63,.55); }
+  #fsControlPanel .btn:not(.secondary):not(.green):not(.orange):not(.outline) { background: rgba(47,111,237,.55); }
+  #fsControlPanel .zoom-reset-pill { background: rgba(47,111,237,.22); }
+  #fsControlPanel .warn-box { background: rgba(217,165,58,.16); }
+  /* 開始位置/終了位置/A-Bループ（.btn.outline系）は今回から#fsControlPanelの外
+     （左上、.fs-mode #fsAbRow）に配置されるため、半透明化やA-Bループの
+     ハイライトの上書きも.fs-mode #fsAbRow側に定義している（上のブロック参照） */
+
+  /* 倍速ボタン（fsSpeedBtn、再生ボタン行の右端）のON時ハイライト。
+     アイコン→テキストラベル「倍速」に変更したのに伴い .btn.secondary になったため、
+     #fsControlPanel .btn.secondary（ID+2クラス）の背景指定に負けないよう、
+     IDセレクタで明示的に上書きする（A-Bループの時と同様の詳細度対策） */
+  #fsControlPanel #fsSpeedBtn.active-toggle {
+    background: rgba(47,111,237,.65); border-color: var(--accent); color: #fff;
+  }
+
+  /* トリムバーは「帯」ではなく「線」に近い、できるだけ主張を抑えた見た目にする。
+     つまみ・再生位置線・開始終了の可動域(緑〜オレンジのグラデーション帯)は
+     そのまま残しつつ、バー自体をごく薄く・細く（40px→7px）した。
+     ミニマップ（ズーム時のみ表示される下端の帯）は全画面時は表示しない。 */
+  #fsControlPanel .trim-bar {
+    top: 4px; height: 7px; border-radius: 4px;
+    background: rgba(255,255,255,.1); border-color: transparent; box-shadow: none;
+  }
+  #fsControlPanel .trim-handle { bottom: 0; width: 6px; margin-left: -3px; border-radius: 3px; }
+  #fsControlPanel .trim-handle::after { height: 6px; }
+  #fsControlPanel .trim-playhead { bottom: 0; }
+  #fsControlPanel .trim-minimap { display: none !important; }
+
+  /* 再生ボタンは行いっぱいに伸びる巨大なピルにせず、他のアイコンボタンと
+     同程度の大きさに収めて、参考レイアウトのように行の中に均等に浮かべる
+     （通常表示のstep-rowはflex:1で play ボタンが伸びる仕様のままなので、
+     ここは #fsControlPanel 限定の上書き）。
+     再生系7ボタンは内側の.step-row-mainにまとめてあるので、.step-row-mainを
+     flex:1で伸ばして行の余白をすべて吸収させ、その中でjustify-content:centerに
+     よって中央ぞろいにする。倍速ボタン（fsSpeedBtn）は.step-row-mainの外側の
+     兄弟要素なので、伸びた.step-row-mainの右隣＝行の右端に自然に押し出される
+     （「再生ボタンらは中央ぞろい、倍速ボタンは右端に配置」との要望） */
+  #fsControlPanel .step-row { gap: 10px; }
+  #fsControlPanel .step-row-main { flex: 1 1 auto; justify-content: center; gap: 10px; }
+  #fsControlPanel .step-row .btn {
+    flex: 0 0 auto; width: auto; padding: 8px 18px; font-size: 13.5px;
+  }
+  #fsControlPanel .icon-btn { width: 36px; height: 36px; border-radius: 10px; }
+
+  /* シークバー: 時刻バッジ + トリムバー（さらにコンパクトに） */
+  .seek-block { position: relative; margin-top: 20px; height: 62px; }
+  .time-badge {
+    position: absolute; top: 0; transform: translateX(-50%);
+    color: #fff; font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 7px;
+    white-space: nowrap; pointer-events: none; z-index: 4; display: none;
+  }
+  .time-badge-start { background: var(--green); }
+  .time-badge-end { background: var(--orange); }
+  .time-badge::after {
+    content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 6px;
+    margin-left: -1px;
+  }
+  .time-badge-start::after { background: var(--green); }
+  .time-badge-end::after { background: var(--orange); }
+
+  .trim-bar {
+    position: absolute; left: 0; right: 0; top: 22px; height: 40px;
+    background: var(--card-2); border: 1px solid var(--border); border-radius: 9px;
+    overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none;
+  }
+  .trim-selection {
+    position: absolute; top: 0; bottom: 5px;
+    background: linear-gradient(90deg, rgba(47,143,78,.32), rgba(224,86,63,.32));
+    pointer-events: none;
+  }
+  .trim-playhead {
+    position: absolute; top: 0; bottom: 5px; width: 2px; background: #fff; opacity: .9;
+    margin-left: -1px; pointer-events: none; z-index: 2; display: none; border-radius: 1px;
+  }
+  .trim-playhead-tip {
+    position: absolute; top: 0; width: 0; height: 0; margin-left: -4px;
+    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #fff;
+    pointer-events: none; z-index: 2; display: none;
+  }
+  /* つまみは表示のみ（操作はトリムバー本体の上半分/下半分で受ける） */
+  .trim-handle {
+    position: absolute; top: 0; bottom: 5px; width: 9px; margin-left: -4.5px;
+    border-radius: 4.5px; pointer-events: none; z-index: 3;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .trim-handle::after { content: ""; width: 2px; height: 12px; background: rgba(255,255,255,.65); border-radius: 1px; }
+  .trim-handle-start { background: var(--green); }
+  .trim-handle-end { background: var(--orange); }
+  .trim-minimap {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(0,0,0,.45);
+    display: none;
+  }
+  .trim-minimap.show { display: block; }
+  .trim-minimap-window {
+    position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .7; border-radius: 2px;
+  }
+
+  /* ズーム中のみ表示: 全体に戻す／表示範囲を左右に動かす（等倍時はこの分の高さごと消える） */
+  .zoom-controls { display: none; flex-direction: column; align-items: center; gap: 4px; margin-top: 6px; }
+  .zoom-controls-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .zoom-pan-btn {
+    width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--card-2); color: var(--text); font-size: 15px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+  }
+  .zoom-reset-pill {
+    font-size: 11px; font-weight: 700; color: var(--accent);
+    background: rgba(47,111,237,.12); border: 1px solid rgba(47,111,237,.4);
+    border-radius: 20px; padding: 4px 12px; cursor: pointer;
+  }
+  .zoom-range-text { text-align: center; font-size: 10.5px; color: var(--text-dim); }
+
+  /* 1秒送り/戻し・再生の行に統合した「開始/終了位置へ移動」アイコン */
+  .step-row { display: flex; align-items: center; gap: 5px; margin-top: 12px; }
+  /* 再生系9ボタン（開始/終了へ移動・10秒/3秒/1秒送り戻し・再生）をまとめる内側の行。
+     倍速ボタン（fsSpeedBtn、通常表示では非表示）を.step-rowの兄弟として
+     独立させるためのラッパーで、通常表示ではflex:1で.step-row全体に広がり
+     見た目は従来と変わらない（全画面表示時の中央ぞろい配置は#fsControlPanel側で上書き）。
+     3秒ボタンを追加しボタン数が7→9に増えたため、幅の狭い端末でも横はみ出しが
+     絶対に起きないよう flex-wrap:wrap にしてある（入りきらない分だけ自動的に
+     2行目へ折り返す。横幅に余裕がある画面＝全画面表示中や大きめの端末では
+     従来どおり1行に収まる） */
+  .step-row-main {
+    display: flex; align-items: center; flex-wrap: wrap; justify-content: center;
+    gap: 5px; flex: 1 1 auto; min-width: 0;
+  }
+  .step-row .btn { flex: 1 1 auto; font-size: 12px; padding: 11px 2px; white-space: nowrap; }
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: 10px; border: none; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  }
+  .icon-btn-outline-start { background: var(--card-2); border: 1.5px solid var(--green); color: var(--green); }
+  .icon-btn-outline-end { background: var(--card-2); border: 1.5px solid var(--orange); color: var(--orange); }
+  /* 1秒/10秒送り戻し（アイコンのみ。押した内容は動画上の scrub-badge で一瞬表示する） */
+  .icon-btn-step { background: var(--card-2); border: 1px solid var(--border); color: var(--text); }
+  /* 3秒送り戻し。1秒(単矢印アイコン)・10秒(二重矢印アイコン)と紛らわしくならないよう、
+     アイコンではなく「◀3」「3▶」という数字テキストで直接見分けられるようにした */
+  .icon-btn-num { font-size: 10.5px; font-weight: 700; letter-spacing: -0.02em; }
+
+  /* 開始/終了に設定するボタンの行（1秒送り等とは別の行） */
+  .dur-line { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+  .dur-line b { color: var(--accent); font-weight: 800; font-size: 13px; }
+  .mark-row { margin-top: 8px; }
+  .mark-row .btn { font-size: 13px; padding: 12px 6px; white-space: nowrap; gap: 5px; }
+  /* 「この瞬間を開始/終了に」行は通常表示専用。全画面表示中は同じ役割の
+     #fsAbRow（開始位置/終了位置ボタン）に置き換わるため明示的に非表示にする
+     （元々videoWrapのfixedオーバーレイに隠れて見えなくなってはいたが、
+     ここでも明示しておくことでどちらのモードかが常に一意に決まるようにする） */
+  .fs-mode .mark-row { display: none; }
+
+  .empty-hint {
+    text-align: center; padding: 40px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.7;
+  }
+  .empty-hint .big { font-size: 34px; margin-bottom: 10px; }
+
+  nav.tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; background: rgba(20,22,28,.96); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav.tabbar button {
+    flex: 1; background: none; border: none; color: var(--text-dim);
+    padding: 10px 4px 8px; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  nav.tabbar button .ic { font-size: 20px; }
+  nav.tabbar button.active { color: var(--accent); }
+
+  /* 全画面オフ時に横向き（ランドスケープ）で開くと、縦幅が狭くヘッダーと
+     下部タブバーが窮屈で邪魔になりやすいため、この条件下ではヘッダー・タブバーを
+     大きく縮小し、動画等の表示領域を少しでも広く確保する（全画面表示中は
+     header/nav.tabbarとも fs-mode で非表示になるため、ここは影響しない） */
+  @media (orientation: landscape) and (max-height: 500px) {
+    body:not(.fs-mode) header {
+      padding: 6px 14px 5px; padding-top: calc(6px + env(safe-area-inset-top));
+      gap: 8px;
+    }
+    body:not(.fs-mode) header .logo { width: 24px; height: 24px; border-radius: 7px; font-size: 11px; }
+    body:not(.fs-mode) header h1 { font-size: 12px; }
+    body:not(.fs-mode) header p { display: none; }
+    body:not(.fs-mode) nav.tabbar button { padding: 5px 4px 4px; font-size: 9px; gap: 1px; }
+    body:not(.fs-mode) nav.tabbar button .ic { font-size: 14px; }
+    body:not(.fs-mode) main { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
+    body:not(.fs-mode) video.preview { max-height: 30vh; }
+  }
+
+  .folder-status {
+    display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 10px;
+    background: var(--card-2); border: 1px solid var(--border); font-size: 13px;
+  }
+  .folder-status .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ok { background: var(--green); }
+  .dot.warn { background: #d9a53a; }
+  .dot.bad { background: var(--orange); }
+
+  .lib-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .lib-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  }
+  .lib-card video { width: 100%; height: 110px; object-fit: cover; background: #000; display: block; }
+  .lib-card .meta { padding: 8px 9px 10px; }
+  .lib-card .name { font-size: 12px; font-weight: 600; word-break: break-all; line-height: 1.35; }
+  .lib-card .sub { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 50;
+    display: none; align-items: center; justify-content: center; flex-direction: column; padding: 20px;
+  }
+  .overlay.active { display: flex; }
+  .overlay video { width: 100%; max-height: 70vh; border-radius: 10px; background: #000; }
+  .overlay .close-btn {
+    position: absolute; top: calc(16px + env(safe-area-inset-top)); right: 16px;
+    width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.12);
+    border: none; color: white; font-size: 18px;
+  }
+
+  #busyOverlay { z-index: 60; }
+  #authOverlay { z-index: 95; }
+  .spinner-box { text-align: center; }
+  .spinner {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 4px solid rgba(255,255,255,.18); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .busy-label { font-size: 14px; color: var(--text); margin-bottom: 6px; }
+  .busy-sub { font-size: 12px; color: var(--text-dim); }
+  .progress-bar-bg { width: 220px; height: 6px; border-radius: 3px; background: #2a2f3a; margin: 14px auto 0; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width .15s linear; }
+  .busy-cancel-btn { margin-top: 18px; }
+
+  #toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom));
+    background: #22262f; border: 1px solid var(--border); color: var(--text);
+    padding: 12px 14px; border-radius: 12px; font-size: 13px; text-align: center;
+    opacity: 0; transform: translateY(8px); transition: all .25s ease; pointer-events: none; z-index: 70;
+    box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+
+  input[type=file] { display: none; }
+  .file-label { display: block; }
+
+  .warn-box {
+    font-size: 12px; color: #d9a53a; background: rgba(217,165,58,.12);
+    border: 1px solid rgba(217,165,58,.3); padding: 10px 12px; border-radius: 10px; margin-top: 10px; line-height: 1.6;
+  }
+  .hidden-vid { position: fixed; left: -9999px; top: -9999px; width: 2px; height: 2px; opacity: 0; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     サポーター登録確認ゲート
+     Firebase Authでログイン状態を確認し、Firestoreの
+     subscriptions/{email} でサポーター登録が有効かどうかを判定する。
+     未ログイン・未登録の場合はツール一覧ログインページへ戻す。
+     管理者アカウント(ADMIN_EMAILS)は常に許可する。
+     判定が完了する(showAppが呼ばれる)までは #app は非表示のまま。
+     ============================================================ -->
+<div class="overlay active" id="authOverlay">
+  <div class="spinner-box">
+    <div class="spinner" id="authSpinner"></div>
+    <div class="busy-label" id="authStatusLabel">サポーター登録を確認しています…</div>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="logo">B</div>
+    <div>
+      <h1>BRICK 動画クリッパー</h1>
+      <p>試合動画からワンシーンを切り出して保存</p>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===================== VIEW 1: クリップ作成 ===================== -->
+    <section id="view-clip" class="view active">
+
+      <div id="noVideoHint" class="card">
+        <div class="empty-hint">
+          <div class="big">🎬</div>
+          動画を選択すると、ここでシーンを切り出せます。
+        </div>
+        <label class="file-label">
+          <div class="btn">動画を選択</div>
+          <input type="file" id="videoInput" accept="video/*">
+        </label>
+      </div>
+
+      <div id="clipEditor" style="display:none;">
+        <div class="card">
+          <div class="video-wrap" id="videoWrap">
+            <video id="previewVideo" class="preview" playsinline></video>
+            <div class="range-badge" id="rangeBadge">✂ ここが切り取り範囲です</div>
+            <div class="scrub-badge" id="scrubBadge"></div>
+            <button type="button" class="overlay-icon-btn" id="reselectBtn" title="動画を選び直す" aria-label="動画を選び直す">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+            </button>
+            <button type="button" class="overlay-icon-btn overlay-icon-btn-bottom" id="speedBtn" title="2倍速" aria-label="2倍速">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 4 13 12 5 20"/><polyline points="12 4 20 12 12 20"/></svg>
+            </button>
+            <button type="button" class="overlay-icon-btn overlay-icon-btn-bottom overlay-icon-btn-left" id="fullscreenBtn" title="全画面表示" aria-label="全画面表示">
+              <svg class="ic-expand" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+              <svg class="ic-compress" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v3a2 2 0 0 1-2 2H4"/><path d="M15 3v3a2 2 0 0 0 2 2h3"/><path d="M9 21v-3a2 2 0 0 0-2-2H4"/><path d="M15 21v-3a2 2 0 0 1 2-2h3"/></svg>
+            </button>
+          </div>
+
+          <!-- 10秒/1秒送り戻し・再生を1行に統合。両端に「開始/終了位置へ移動」アイコン。
+               1秒/10秒ボタンはアイコンのみ（押すと動画上に「◀1秒」等のバッジが一瞬表示されるので
+               ラベルなしでも何をしたか分かるようにしている） -->
+          <div class="step-row">
+            <!-- 再生系7ボタンを内側の.step-row-mainにまとめることで、fsSpeedBtnを
+                 行に加えても再生系ボタン群だけを中央ぞろいのグループとして扱える。
+                 通常表示ではstep-row-mainがflex:1で伸びるので見た目は従来通り、
+                 全画面表示では#fsControlPanel .step-row-mainがjustify-content:center
+                 になり、fsSpeedBtnだけが行の右端に独立して残る
+                 （「再生ボタンらは中央ぞろい、倍速ボタンは右端に配置」との要望）。
+                 なお.step-row-main自体を行の中でjustify-content:centerしても、
+                 右端にfsSpeedBtn分の幅が食い込む分だけ中心が左へずれてしまうため、
+                 反対側（左端）にfsSpeedBtnと同じ見た目・同じ幅の非表示スペーサー
+                 （#stepRowSpacer）を置き、左右の余白を釣り合わせることで
+                 再生ボタン群を画面（行）全体の真ん中に見せている
+                 （見えない・押せないダミーボタンで幅を合わせる方式）。 -->
+            <div class="btn secondary fs-speed-btn fs-only" id="stepRowSpacer" aria-hidden="true">倍速</div>
+            <div class="step-row-main">
+              <button type="button" class="icon-btn icon-btn-outline-start" id="jumpStartBtn" title="開始位置へ移動" aria-label="開始位置へ移動">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-step" id="step10BackBtn" title="10秒戻る" aria-label="10秒戻る">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-6 6 6 6"/><path d="M12 6l-6 6 6 6"/></svg>
+              </button>
+              <!-- 3秒送り戻し（1秒・10秒の間の刻み。アイコンだけだと1秒/10秒と
+                   見分けづらいため、数字テキストで直接「3s」と表示する方式にした） -->
+              <button type="button" class="icon-btn icon-btn-step icon-btn-num" id="step3BackBtn" title="3秒戻る" aria-label="3秒戻る">◀3</button>
+              <button type="button" class="icon-btn icon-btn-step" id="stepBackBtn" title="1秒戻る" aria-label="1秒戻る">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+              </button>
+              <button class="btn secondary" id="playPauseBtn">▶ 再生</button>
+              <button type="button" class="icon-btn icon-btn-step" id="stepFwdBtn" title="1秒進む" aria-label="1秒進む">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-step icon-btn-num" id="step3FwdBtn" title="3秒進む" aria-label="3秒進む">3▶</button>
+              <button type="button" class="icon-btn icon-btn-step" id="step10FwdBtn" title="10秒進む" aria-label="10秒進む">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-outline-end" id="jumpEndBtn" title="終了位置へ移動" aria-label="終了位置へ移動">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              </button>
+            </div>
+            <!-- 全画面表示専用の倍速ボタン。既存のspeedBtn（動画右上のアイコン）への
+                 クリック委譲で、再生ボタン等（.step-row-main）の並びを変えずに
+                 行の右端へ独立して配置する。通常表示では .fs-only により非表示。
+                 アイコンでは「押した意味」が伝わりにくいため、テキストラベル
+                 「倍速」に変更（アイコン→テキストの変更依頼） -->
+            <button type="button" class="btn secondary fs-speed-btn fs-only" id="fsSpeedBtn" title="倍速" aria-label="倍速">倍速</button>
+          </div>
+
+          <!-- シークバー: つまみの上の時刻バッジ + 太めのトリムバー -->
+          <!-- 上半分をタッチ: 白い再生位置の線を動かす／下半分をタッチ: 近い方の開始・終了ハンドルを動かす -->
+          <div class="seek-block">
+            <div class="time-badge time-badge-start" id="startBadge">0:00.0</div>
+            <div class="time-badge time-badge-end" id="endBadge">0:00.0</div>
+
+            <div class="trim-bar" id="rangeWrap">
+              <div class="trim-selection" id="rangeFill"></div>
+              <div class="trim-playhead" id="rangePlayhead"></div>
+              <div class="trim-playhead-tip" id="rangePlayheadTip"></div>
+              <div class="trim-handle trim-handle-start" id="startThumb"></div>
+              <div class="trim-handle trim-handle-end" id="endThumb"></div>
+              <div class="trim-minimap" id="minimap">
+                <div class="trim-minimap-window" id="minimapWindow"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ズーム中のみ表示（案B: ピンチのみで拡大縮小。等倍時はここが丸ごと消える） -->
+          <div class="zoom-controls" id="zoomControls">
+            <div class="zoom-controls-row">
+              <button type="button" class="zoom-pan-btn" id="panLeftBtn" aria-label="表示範囲を左に動かす">‹</button>
+              <button type="button" class="zoom-reset-pill" id="zoomResetBtn">全体に戻す</button>
+              <button type="button" class="zoom-pan-btn" id="panRightBtn" aria-label="表示範囲を右に動かす">›</button>
+            </div>
+            <div class="zoom-range-text" id="zoomRangeText"></div>
+          </div>
+
+          <div class="dur-line">切り出し長さ: <b id="clipDurLabel">0.0秒</b></div>
+
+          <!-- 開始/終了に設定するボタン -->
+          <div class="row mark-row">
+            <button type="button" class="btn green" id="markStartBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              この瞬間を開始に
+            </button>
+            <button type="button" class="btn orange" id="markEndBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4"/><path d="M4 4h13l-3 4 3 4H4"/></svg>
+              この瞬間を終了に
+            </button>
+          </div>
+
+          <!-- 全画面表示時のみ使う3ボタン行（開始位置/終了位置はmarkStartBtn/markEndBtnへの
+               クリック委譲。A-Bループは今回新規追加したプレビュー内ループ再生機能で、
+               ボタン自体がトグルなので「解除」ボタンは廃止した＝もう一度押せばOFFになる）。
+               通常表示では .fs-only により非表示。全画面時は#fsControlPanel（下部パネル）
+               ではなく、左上の「切り取り範囲です」バッジの下に独立して配置される
+               （.fs-mode #fsAbRow のCSS参照）。 -->
+          <div class="row ab-row fs-only" id="fsAbRow">
+            <button type="button" class="btn outline outline-green fs-mark-btn" id="fsMarkStartBtn">
+              <span class="fs-mark-label">開始位置</span><span class="fs-mark-time" id="fsMarkStartTime">0:00.0</span>
+            </button>
+            <button type="button" class="btn outline outline-orange fs-mark-btn" id="fsMarkEndBtn">
+              <span class="fs-mark-label">終了位置</span><span class="fs-mark-time" id="fsMarkEndTime">0:00.0</span>
+            </button>
+            <button type="button" class="btn outline outline-accent" id="abLoopBtn">A-Bループ</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>保存</h2>
+          <div class="row save-row">
+            <button class="btn" id="saveNormalBtn">通常保存</button>
+            <button class="btn green" id="saveNiceBtn">Nice</button>
+            <button class="btn orange" id="saveFunBtn">Fun</button>
+            <button class="btn secondary" id="saveSnapshotBtn">📷静止画</button>
+          </div>
+          <div id="folderWarnBox" class="warn-box" style="display:none;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 2: 保存先設定 ===================== -->
+    <section id="view-settings" class="view">
+      <div class="card">
+        <h2>保存先フォルダ</h2>
+        <div class="folder-status" id="folderStatusBox">
+          <div class="dot warn"></div>
+          <div>未設定です。フォルダを選択してください。</div>
+        </div>
+        <div class="row" style="margin-top:12px;">
+          <button class="btn" id="pickFolderBtn">フォルダを選択</button>
+        </div>
+        <div id="permBtnWrap" style="display:none; margin-top:10px;">
+          <button class="btn secondary" id="grantPermBtn">保存の許可を確認する</button>
+        </div>
+        <div class="warn-box" id="unsupportedWarn" style="display:none;">
+          お使いのブラウザはフォルダへの直接保存に対応していません。保存ボタンを押すとダウンロードフォルダに保存されます。最新の Android 版 Google Chrome でのご利用を推奨します。
+        </div>
+      </div>
+      <div class="card">
+        <h2>ファイル名のルール</h2>
+        <div style="font-size:13px; color:var(--text-dim); line-height:1.8;">
+          元の動画ファイル名 + 連番（動画ごとに自動採番）<br>
+          「Nice」「Fun」で保存した場合は末尾にボタン名が付きます。<br>
+          例：match0812_0001.mp4 / match0812_0002_Nice.mp4
+        </div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-08-26 08:51</div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 3: 保存済み一覧 ===================== -->
+    <section id="view-library" class="view">
+      <div class="card" style="display:flex; align-items:center; justify-content:space-between;">
+        <h2 style="margin:0;">保存済みクリップ</h2>
+        <button class="btn secondary small" id="refreshLibBtn">更新</button>
+      </div>
+      <div id="libraryGrid" class="lib-grid"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-view="view-clip"><span class="ic">✂️</span>クリップ作成</button>
+    <button class="tab-btn" data-view="view-settings"><span class="ic">📁</span>保存先設定</button>
+    <button class="tab-btn" data-view="view-library"><span class="ic">🎞️</span>保存済み一覧</button>
+  </nav>
+</div>
+
+<!-- 抽出用（非表示）ビデオ要素。captureStream + MediaRecorder で使用 -->
+<video id="extractVideo" class="hidden-vid" playsinline></video>
+
+<!-- プレビューモーダル（保存済み一覧のタップ再生） -->
+<div class="overlay" id="previewOverlay">
+  <button class="close-btn" id="closePreviewBtn">✕</button>
+  <video id="modalVideo" controls playsinline></video>
+</div>
+
+<!-- 処理中オーバーレイ -->
+<div class="overlay" id="busyOverlay">
+  <div class="spinner-box">
+    <div class="spinner"></div>
+    <div class="busy-label" id="busyLabel">処理中...</div>
+    <div class="busy-sub" id="busySub"></div>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+    <button type="button" class="btn secondary small busy-cancel-btn" id="busyCancelBtn">キャンセル</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =========================================================
+   *  状態
+   * ======================================================= */
+  const state = {
+    currentFile: null,
+    videoURL: null,
+    duration: 0,
+    startTime: 0,
+    endTime: 0,
+    dirHandle: null,
+    libraryURLs: [],
+  };
+
+  const FEATURE = {
+    fsAccess: typeof window.showDirectoryPicker === "function",
+    mediaRecorder: typeof window.MediaRecorder === "function",
+    captureStream: !!(HTMLVideoElement.prototype.captureStream || HTMLVideoElement.prototype.mozCaptureStream),
+  };
+
+  /* =========================================================
+   *  ユーティリティ
+   * ======================================================= */
+  function $(id) { return document.getElementById(id); }
+
+  function formatTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = (sec - m * 60).toFixed(1);
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  let toastTimer = null;
+  function toast(msg, ms) {
+    const el = $("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), ms || 3200);
+  }
+
+  function setBusy(on, label, sub) {
+    const ov = $("busyOverlay");
+    if (on) {
+      $("busyLabel").textContent = label || "処理中...";
+      $("busySub").textContent = sub || "";
+      $("progressFill").style.width = "0%";
+      const cancelBtn = $("busyCancelBtn");
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = "キャンセル";
+      ov.classList.add("active");
+    } else {
+      ov.classList.remove("active");
+    }
+  }
+  function setProgress(p) {
+    $("progressFill").style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + "%";
+  }
+
+  function sanitizeBase(name) {
+    return name.replace(/\.[^/.]+$/, "").replace(/[\\/:*?"<>|]/g, "_").trim() || "clip";
+  }
+
+  function nextSeq(base) {
+    const key = "brick-clipper-seq:" + base;
+    let n = parseInt(localStorage.getItem(key) || "0", 10) + 1;
+    localStorage.setItem(key, String(n));
+    return n;
+  }
+
+  function pad4(n) { return String(n).padStart(4, "0"); }
+
+  function buildFilename(base, seq, suffix, ext) {
+    return base + "_" + pad4(seq) + (suffix ? "_" + suffix : "") + "." + ext;
+  }
+
+  /* =========================================================
+   *  IndexedDB: 保存先フォルダハンドルの永続化
+   * ======================================================= */
+  const DB_NAME = "brick-clipper-db";
+  const STORE = "kv";
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(key, val) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(val, key);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /* =========================================================
+   *  タブ切り替え
+   * ======================================================= */
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      btn.classList.add("active");
+      $(btn.dataset.view).classList.add("active");
+      if (btn.dataset.view === "view-library") loadLibrary();
+      if (btn.dataset.view === "view-settings") refreshFolderStatus();
+      if (btn.dataset.view === "view-clip") reviveClipEditorVideo();
+    });
+  });
+
+  // 他のタブ(保存先設定・保存済み一覧)に移動して戻ってくると、端末によっては
+  // 非表示になっていた動画プレイヤーが再生できなくなることがあるため
+  // (特に保存済み一覧では複数のサムネイル動画を同時に読み込むため端末の
+  // 動画デコーダーの上限に達しやすい)、クリップ作成タブに戻るたびに
+  // 動画の読み込み状態を確認し、必要であれば読み込み直す。
+  function reviveClipEditorVideo() {
+    if (!state.videoURL) return;
+    const pv = $("previewVideo");
+    if (!pv) return;
+    const savedTime = pv.currentTime || state.startTime || 0;
+    pv.pause();
+    pv.src = state.videoURL;
+    pv.onloadedmetadata = () => {
+      try { pv.currentTime = savedTime; } catch (e) {}
+    };
+    pv.load();
+  }
+
+  /* =========================================================
+   *  1. 動画選択
+   * ======================================================= */
+  $("videoInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    loadVideoFile(file);
+  });
+
+  $("reselectBtn").addEventListener("click", () => {
+    $("videoInput").value = "";
+    $("videoInput").click();
+  });
+
+  function loadVideoFile(file) {
+    if (state.videoURL) URL.revokeObjectURL(state.videoURL);
+    state.currentFile = file;
+    state.videoURL = URL.createObjectURL(file);
+
+    const pv = $("previewVideo");
+    pv.pause();
+    pv.src = state.videoURL;
+    pv.muted = false;
+    pv.playbackRate = is2xSpeed ? 2 : 1;
+
+    pv.onloadedmetadata = () => {
+      state.duration = pv.duration || 0;
+      state.startTime = 0;
+      state.endTime = Math.min(state.duration, 5);
+      setViewFromAnchor(state.duration / 2, 50, 1); // ズームをリセットして全体表示に
+      pv.currentTime = state.startTime;
+      updateLabels();
+      updatePlayPauseLabel();
+      $("noVideoHint").style.display = "none";
+      $("clipEditor").style.display = "block";
+    };
+    pv.onerror = () => {
+      toast("動画を読み込めませんでした。別の動画をお試しください。");
+    };
+  }
+
+  /* =========================================================
+   *  2〜3. シークバー操作（開始/終了つまみ・再生位置・ズーム/パン）
+   * ======================================================= */
+  const previewVideo = $("previewVideo");
+  const rangeWrap = $("rangeWrap");
+  const rangeFill = $("rangeFill");
+  const rangePlayhead = $("rangePlayhead");
+  const rangePlayheadTip = $("rangePlayheadTip");
+  const startThumb = $("startThumb");
+  const endThumb = $("endThumb");
+  const startBadge = $("startBadge");
+  const endBadge = $("endBadge");
+  const zoomControls = $("zoomControls");
+  const zoomResetBtn = $("zoomResetBtn");
+  const panLeftBtn = $("panLeftBtn");
+  const panRightBtn = $("panRightBtn");
+  const zoomRangeText = $("zoomRangeText");
+  const minimap = $("minimap");
+  const minimapWindow = $("minimapWindow");
+
+  /* ---- シークバーの表示ズーム／パン（長時間動画で細かい位置指定をしやすくする） ---- */
+  const MAX_ZOOM = 60;
+  let zoomLevel = 1;   // 1 = 動画全体を表示
+  let viewStart = 0;   // 現在シークバーに表示中の範囲（秒）
+  let viewEnd = 0;
+
+  function timeToPercent(t) {
+    if (viewEnd <= viewStart) return 0;
+    return ((t - viewStart) / (viewEnd - viewStart)) * 100;
+  }
+  function percentToTime(p) {
+    return viewStart + (p / 100) * (viewEnd - viewStart);
+  }
+  function getRectPercent(clientX) {
+    const rect = rangeWrap.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+  }
+
+  // anchorTime（絶対時間）が、表示上ちょうど anchorPercent(0-100) の位置にくるように
+  // viewStart/viewEndを再計算する。ピンチのズーム＋パンを同時に扱うための共通関数。
+  function setViewFromAnchor(anchorTime, anchorPercent, newZoom) {
+    const total = state.duration || 0;
+    zoomLevel = Math.max(1, Math.min(MAX_ZOOM, newZoom));
+    if (total <= 0) { viewStart = 0; viewEnd = 0; return; }
+    const viewDur = total / zoomLevel;
+    let vs = anchorTime - (anchorPercent / 100) * viewDur;
+    let ve = vs + viewDur;
+    if (vs < 0) { ve -= vs; vs = 0; }
+    if (ve > total) { vs -= (ve - total); ve = total; }
+    viewStart = Math.max(0, vs);
+    viewEnd = Math.min(total, viewStart + viewDur);
+  }
+
+  function ensureTimeVisible(t) {
+    if (zoomLevel <= 1 || state.duration <= 0) return;
+    if (t < viewStart || t > viewEnd) {
+      setViewFromAnchor(t, 50, zoomLevel);
+      renderRangeUI();
+    }
+  }
+
+  // ズーム中かどうかで「全体に戻す・左右に動かす」行とミニマップの表示/非表示を切り替える（案B）
+  function updateZoomUI() {
+    if (zoomLevel <= 1.02 || state.duration <= 0) {
+      zoomControls.style.display = "none";
+      minimap.classList.remove("show");
+    } else {
+      zoomControls.style.display = "flex";
+      minimap.classList.add("show");
+      const total = state.duration || 1;
+      const l = (viewStart / total) * 100;
+      const w = ((viewEnd - viewStart) / total) * 100;
+      minimapWindow.style.left = l + "%";
+      minimapWindow.style.width = Math.max(1.5, w) + "%";
+      zoomRangeText.textContent = "表示中: " + formatTime(viewStart) + " 〜 " + formatTime(viewEnd) + "（全体 " + formatTime(total) + "）";
+    }
+  }
+
+  // ズームしたまま表示範囲だけを左右に動かす（片手でパンできるように）
+  function panView(direction) {
+    const total = state.duration || 0;
+    if (total <= 0 || zoomLevel <= 1.02) return;
+    const viewDur = viewEnd - viewStart;
+    let vs = viewStart + viewDur * 0.6 * direction;
+    let ve = vs + viewDur;
+    if (vs < 0) { ve -= vs; vs = 0; }
+    if (ve > total) { vs -= (ve - total); ve = total; }
+    viewStart = Math.max(0, vs);
+    viewEnd = Math.min(total, viewStart + viewDur);
+    renderRangeUI();
+  }
+
+  function updatePlayhead() {
+    if (state.duration <= 0) { rangePlayhead.style.display = "none"; rangePlayheadTip.style.display = "none"; return; }
+    const p = timeToPercent(previewVideo.currentTime);
+    if (p < 0 || p > 100) { rangePlayhead.style.display = "none"; rangePlayheadTip.style.display = "none"; return; }
+    rangePlayhead.style.display = "block";
+    rangePlayhead.style.left = p + "%";
+    rangePlayheadTip.style.display = "block";
+    rangePlayheadTip.style.left = p + "%";
+  }
+
+  function renderRangeUI() {
+    if (state.duration <= 0) return;
+    const sp = timeToPercent(state.startTime);
+    const ep = timeToPercent(state.endTime);
+    const cs = Math.max(0, Math.min(100, sp));
+    const ce = Math.max(0, Math.min(100, ep));
+    rangeFill.style.left = cs + "%";
+    rangeFill.style.width = Math.max(0, ce - cs) + "%";
+
+    const startVisible = !(sp < -3 || sp > 103);
+    const endVisible = !(ep < -3 || ep > 103);
+
+    startThumb.style.left = sp + "%";
+    endThumb.style.left = ep + "%";
+    startThumb.style.display = startVisible ? "flex" : "none";
+    endThumb.style.display = endVisible ? "flex" : "none";
+
+    startBadge.style.left = sp + "%";
+    endBadge.style.left = ep + "%";
+    startBadge.style.display = startVisible ? "block" : "none";
+    endBadge.style.display = endVisible ? "block" : "none";
+
+    updatePlayhead();
+    updateZoomUI();
+  }
+
+  function updateLabels() {
+    startBadge.textContent = formatTime(state.startTime);
+    endBadge.textContent = formatTime(state.endTime);
+    $("clipDurLabel").textContent = Math.max(0, state.endTime - state.startTime).toFixed(1) + "秒";
+    // 全画面表示の「開始位置/終了位置」ボタン（#fsAbRow）のラベル下にも同じ時刻を表示する。
+    // state.startTime/endTimeが変わるたびに必ず呼ばれるこの関数に相乗りすることで、
+    // ボタンを押した結果（何秒に設定されたか）がその場で分かるようにしている
+    const fsStartTimeEl = $("fsMarkStartTime");
+    const fsEndTimeEl = $("fsMarkEndTime");
+    if (fsStartTimeEl) fsStartTimeEl.textContent = formatTime(state.startTime);
+    if (fsEndTimeEl) fsEndTimeEl.textContent = formatTime(state.endTime);
+    renderRangeUI();
+    updateRangeBadge();
+  }
+
+  // ---- 開始／終了ハンドルの移動（トリムバー下半分のドラッグから呼ばれる） ----
+  function moveHandle(kind, clientX) {
+    const t = percentToTime(getRectPercent(clientX));
+    if (kind === "start") {
+      let v = Math.max(0, t);
+      if (v > state.endTime - 0.1) v = Math.max(0, state.endTime - 0.1);
+      state.startTime = v;
+      previewVideo.currentTime = v;
+    } else {
+      let v = Math.min(state.duration, t);
+      if (v < state.startTime + 0.1) v = Math.min(state.duration, state.startTime + 0.1);
+      state.endTime = v;
+      previewVideo.currentTime = v;
+    }
+    updateLabels();
+  }
+
+  // ---- シークバー本体の操作 ----
+  // 指(ポインター)1本でドラッグ:
+  //   上半分をタッチ → 白い再生位置の線(再生位置)を動かす
+  //   下半分をタッチ → タッチした位置に近い方の開始/終了ハンドルを動かす
+  //   （つまみ自体は表示のみで、狭いつまみを正確につままなくても操作できるようにしている）
+  // 指2本(ピンチ): つまんだ位置を軸にズーム／パンする。
+  // window全体でpointermove/upを監視することで、指がバーの外に少しはみ出しても操作が途切れないようにしている。
+  const activeRangePointers = new Map(); // pointerId -> {x, y}
+  let pinch = null;         // {startDist, startZoom, anchorTime}
+  let seekPointerId = null;
+  let handleDragPointerId = null;
+  let handleDragKind = null; // "start" | "end"
+
+  function seekToClientX(clientX) {
+    if (state.duration <= 0) return;
+    const t = percentToTime(getRectPercent(clientX));
+    previewVideo.currentTime = Math.max(0, Math.min(state.duration, t));
+    updatePlayhead();
+  }
+
+  function pinchFromPoints() {
+    const pts = [...activeRangePointers.values()].slice(-2);
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    const midPercent = getRectPercent((pts[0].x + pts[1].x) / 2);
+    return { dist: dist || 1, midPercent };
+  }
+
+  function isLowerHalf(clientY) {
+    const rect = rangeWrap.getBoundingClientRect();
+    if (!rect.height) return false;
+    return (clientY - rect.top) >= rect.height / 2;
+  }
+
+  function nearestHandleKind(clientX) {
+    const t = percentToTime(getRectPercent(clientX));
+    return Math.abs(t - state.startTime) <= Math.abs(t - state.endTime) ? "start" : "end";
+  }
+
+  rangeWrap.addEventListener("pointerdown", (e) => {
+    if (state.duration <= 0) return;
+    e.preventDefault();
+    activeRangePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // 全画面表示中は「開始/終了位置と再生位置を表示しつつ、シークバーでは
+    // 再生位置のみ動かせる」という簡略な操作にする（開始/終了ハンドルの
+    // ドラッグ微調整・ピンチズームは行わない。細かい調整は全画面表示を
+    // 終了してから行う想定）
+    if (isFullscreenMode) {
+      pinch = null;
+      handleDragPointerId = null;
+      seekPointerId = e.pointerId;
+      seekToClientX(e.clientX);
+      return;
+    }
+
+    if (activeRangePointers.size >= 2) {
+      seekPointerId = null;
+      handleDragPointerId = null;
+      const { dist, midPercent } = pinchFromPoints();
+      pinch = { startDist: dist, startZoom: zoomLevel, anchorTime: percentToTime(midPercent) };
+    } else if (isLowerHalf(e.clientY)) {
+      seekPointerId = null;
+      handleDragPointerId = e.pointerId;
+      handleDragKind = nearestHandleKind(e.clientX);
+      moveHandle(handleDragKind, e.clientX);
+    } else {
+      handleDragPointerId = null;
+      seekPointerId = e.pointerId;
+      seekToClientX(e.clientX);
+    }
+  });
+
+  function onRangePointerMove(e) {
+    if (!activeRangePointers.has(e.pointerId)) return;
+    activeRangePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (isFullscreenMode) {
+      if (seekPointerId === e.pointerId) seekToClientX(e.clientX);
+      return;
+    }
+
+    if (activeRangePointers.size >= 2) {
+      if (!pinch) {
+        const { dist, midPercent } = pinchFromPoints();
+        pinch = { startDist: dist, startZoom: zoomLevel, anchorTime: percentToTime(midPercent) };
+        seekPointerId = null;
+        handleDragPointerId = null;
+      }
+      const { dist, midPercent } = pinchFromPoints();
+      const newZoom = pinch.startZoom * (dist / pinch.startDist);
+      setViewFromAnchor(pinch.anchorTime, midPercent, newZoom);
+      renderRangeUI();
+    } else if (seekPointerId === e.pointerId) {
+      seekToClientX(e.clientX);
+    } else if (handleDragPointerId === e.pointerId) {
+      moveHandle(handleDragKind, e.clientX);
+    }
+  }
+
+  function onRangePointerUp(e) {
+    if (!activeRangePointers.has(e.pointerId)) return;
+    activeRangePointers.delete(e.pointerId);
+    if (seekPointerId === e.pointerId) seekPointerId = null;
+    if (handleDragPointerId === e.pointerId) { handleDragPointerId = null; handleDragKind = null; }
+    if (activeRangePointers.size < 2) pinch = null;
+  }
+
+  window.addEventListener("pointermove", onRangePointerMove);
+  window.addEventListener("pointerup", onRangePointerUp);
+  window.addEventListener("pointercancel", onRangePointerUp);
+
+  // ---- ズーム中だけ出てくる操作（案B: 通常はピンチのみ。全体に戻す／左右に動かす） ----
+  zoomResetBtn.addEventListener("click", () => {
+    setViewFromAnchor((state.duration || 0) / 2, 50, 1);
+    renderRangeUI();
+  });
+  panLeftBtn.addEventListener("click", () => panView(-1));
+  panRightBtn.addEventListener("click", () => panView(1));
+
+  $("jumpStartBtn").addEventListener("click", () => {
+    previewVideo.currentTime = state.startTime;
+    ensureTimeVisible(state.startTime);
+    updatePlayhead();
+  });
+  $("jumpEndBtn").addEventListener("click", () => {
+    previewVideo.currentTime = state.endTime;
+    ensureTimeVisible(state.endTime);
+    updatePlayhead();
+  });
+
+  // 再生中（一時停止中でも）の「今の瞬間」を開始／終了位置として指定するボタン。
+  // 動画は止めず、そのまま再生を続けられる。
+  $("markStartBtn").addEventListener("click", () => {
+    const t = previewVideo.currentTime;
+    let newEnd = state.endTime;
+    if (t > state.endTime - 0.1) {
+      // 終了位置より後（または近すぎる）の場合は、終了位置を再生位置の5秒後に移動させる
+      newEnd = Math.min(state.duration, t + 5);
+    }
+    if (newEnd - t < 0.1) {
+      toast("動画の終端に近すぎるため開始位置を設定できません");
+      return;
+    }
+    state.startTime = t;
+    state.endTime = newEnd;
+    updateLabels();
+  });
+  $("markEndBtn").addEventListener("click", () => {
+    const t = previewVideo.currentTime;
+    let newStart = state.startTime;
+    if (t < state.startTime + 0.1) {
+      // 開始位置より前（または近すぎる）の場合は、開始位置を再生位置の5秒前に移動させる
+      newStart = Math.max(0, t - 5);
+    }
+    if (t - newStart < 0.1) {
+      toast("動画の先頭に近すぎるため終了位置を設定できません");
+      return;
+    }
+    state.endTime = t;
+    state.startTime = newStart;
+    updateLabels();
+  });
+
+  /* =========================================================
+   *  再生／一時停止・2倍速
+   * ======================================================= */
+  const playPauseBtn = $("playPauseBtn");
+  const speedBtn = $("speedBtn");
+  const fsSpeedBtn = $("fsSpeedBtn");
+  let is2xSpeed = false;
+
+  function updatePlayPauseLabel() {
+    playPauseBtn.textContent = previewVideo.paused ? "▶ 再生" : "⏸ 停止";
+  }
+
+  playPauseBtn.addEventListener("click", () => {
+    if (previewVideo.paused) {
+      previewVideo.play().catch(() => { toast("再生に失敗しました"); });
+    } else {
+      previewVideo.pause();
+    }
+  });
+  previewVideo.addEventListener("play", updatePlayPauseLabel);
+  previewVideo.addEventListener("pause", updatePlayPauseLabel);
+  previewVideo.addEventListener("ended", updatePlayPauseLabel);
+
+  speedBtn.addEventListener("click", () => {
+    is2xSpeed = !is2xSpeed;
+    previewVideo.playbackRate = is2xSpeed ? 2 : 1;
+    // ON/OFFは動画プレビュー右下の丸いアイコンボタン、および全画面表示中は
+    // 再生ボタン行右端のfsSpeedBtnのハイライト(active-toggle)で示す
+    speedBtn.classList.toggle("active-toggle", is2xSpeed);
+    fsSpeedBtn.classList.toggle("active-toggle", is2xSpeed);
+  });
+  // 全画面表示専用の2倍速ボタン（再生ボタン行の右端）。既存のspeedBtnへの
+  // クリック委譲で同じロジックをそのまま使う（通常表示では.fs-onlyにより非表示）
+  fsSpeedBtn.addEventListener("click", () => speedBtn.click());
+
+  /* =========================================================
+   *  全画面表示モード（v2: 動画を実際に画面いっぱいに表示し、
+   *  操作系のコントロール一式を動画下端のオーバーレイパネルにまとめて重ねる）
+   *  ・#videoWrap を position:fixed で画面全体に固定表示することで、
+   *    Fullscreen API が使えない環境でも確実に「動画が画面いっぱい」になるようにする
+   *    （加えて、対応環境では requestFullscreen() も呼び、アドレスバー等も隠す）
+   *  ・stepRow・seekBlock（トリムバー）・zoomControls・durLine・markRow・保存カードを
+   *    まとめて #fsControlPanel という1つのオーバーレイパネルへ移動し、動画の下に
+   *    半透明の帯として重ねて表示する。終了時は全て元の位置へ正確に戻す
+   * ======================================================= */
+  const fullscreenBtn = $("fullscreenBtn");
+  const videoWrap = $("videoWrap");
+  const stepRowEl = document.querySelector(".step-row");
+  const seekBlockEl = document.querySelector(".seek-block");
+  const fsAbRowEl = $("fsAbRow");
+  const saveCardEl = $("saveNormalBtn").closest(".card");
+  // 保存の進捗オーバーレイ（#busyOverlay、通常保存/Nice/Fun/静止画すべてで共通使用）と
+  // 完了・失敗トースト（#toast）。どちらも通常はbody直下の固定要素で、z-indexだけで
+  // videoWrapの上に重ねて見せていたが、ネイティブのFullscreen API
+  // （requestFullscreen(videoWrap)）が有効な環境では、フルスクリーン中は
+  // videoWrapの「子孫要素」以外は一切描画されない（ブラウザの仕様）ため、
+  // 全画面表示中に保存すると進捗バー・完了トーストが実際には見えなくなっていた。
+  // これを解消するため、他のFS_MOVABLES同様に全画面中だけvideoWrap配下へ
+  // 一時的に移動させる（position:fixedのままなので見た目上の位置は変化しない）。
+  const busyOverlayEl = $("busyOverlay");
+  const toastEl = $("toast");
+
+  // 全画面表示中に動画の上へ移動させる要素一式。
+  // （stepRow・seekBlock・fsAbRow（開始位置/終了位置/A-Bループ）・保存カード・
+  // 保存進捗オーバーレイ・完了トーストの6つ。
+  // zoomControls・durLine・通常表示のmarkRow「この瞬間を開始/終了に」は全画面時は
+  // 表示せず、通常表示に戻ってから使う想定。全画面表示中はシークバーの操作も
+  // 「再生位置のシーク」のみに簡略化している＝下記のrangeWrapのpointerdown参照）
+  // このFS_MOVABLES配列の並び順は、実際のページ読み込み時のDOM上の並び順
+  // （stepRow→seekBlock→fsAbRow→saveCard→busyOverlay→toast）と一致させる必要がある。
+  // restoreFsOverlay()はこの並びを逆順に処理して元の位置へ戻すため、順序がズレると
+  // 復元が壊れる（どの#fsControlPanel/videoWrap配下に一時的に移動するかとは無関係）。
+  // 元の位置（親要素・直後の兄弟要素）はページ読み込み時に一度だけ記録しておき、
+  // 終了時にそれぞれ正確に同じ場所へ戻せるようにする
+  const FS_MOVABLES = [stepRowEl, seekBlockEl, fsAbRowEl, saveCardEl, busyOverlayEl, toastEl];
+  const fsHomes = FS_MOVABLES.map(function (el) {
+    return { el: el, parent: el.parentNode, next: el.nextSibling };
+  });
+
+  let isFullscreenMode = false;
+  let fsPanel = null;
+
+  function enterFsOverlay() {
+    fsPanel = document.createElement("div");
+    fsPanel.id = "fsControlPanel";
+    videoWrap.appendChild(fsPanel);
+    // 下部パネルへ移動する表示順（上から）: シークバー → 再生/送り戻し行 → 保存カード
+    // （「再生ボタンの行をシークバーと保存ボタン行の間に配置してほしい」との要望）
+    [seekBlockEl, stepRowEl, saveCardEl].forEach(function (el) { fsPanel.appendChild(el); });
+    // 開始位置/終了位置/A-Bループの行だけは下部パネルに入れず、左上（切り取り範囲
+    // バッジの下）に独立配置する。videoWrap直下に置くことで、動画を覆う
+    // fixedオーバーレイ（videoWrap）の上に重なって見えるようにしている
+    videoWrap.appendChild(fsAbRowEl);
+    // 保存進捗オーバーレイ・完了トーストも同様にvideoWrap直下へ移動する。
+    // どちらもposition:fixedなので見た目の位置（画面中央／画面下部）はそのまま。
+    // #fsControlPanelより後にappendChildすることで、万一z-indexが同点でも
+    // DOM順で#fsControlPanelより手前（上）に描画されるようにしている
+    videoWrap.appendChild(busyOverlayEl);
+    videoWrap.appendChild(toastEl);
+  }
+
+  function restoreFsOverlay() {
+    // 記録した順と逆順に戻すことで、「直後の兄弟要素」が先に正しい位置へ
+    // 復元済みになっている状態を保証し、常に正確な位置へ挿入できるようにしている
+    for (let i = fsHomes.length - 1; i >= 0; i--) {
+      const home = fsHomes[i];
+      if (home.next && home.next.parentNode === home.parent) {
+        home.parent.insertBefore(home.el, home.next);
+      } else {
+        home.parent.appendChild(home.el);
+      }
+    }
+    if (fsPanel && fsPanel.parentNode) fsPanel.parentNode.removeChild(fsPanel);
+    fsPanel = null;
+  }
+
+  // Fullscreen API（対応環境のみ。失敗しても position:fixed による疑似全画面で続行できる）
+  function requestElementFullscreen(el) {
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen ||
+      el.webkitRequestFullScreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (!fn) return Promise.reject(new Error("fullscreen API not supported"));
+    try {
+      const p = fn.call(el);
+      return (p && typeof p.then === "function") ? p : Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+  function currentFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement ||
+      document.webkitCurrentFullScreenElement || null;
+  }
+  function exitElementFullscreen() {
+    if (!currentFullscreenElement()) return;
+    const fn = document.exitFullscreen || document.webkitExitFullscreen || document.webkitCancelFullScreen;
+    if (fn) { try { fn.call(document); } catch (e) { /* 無視 */ } }
+  }
+
+  // Screen Orientation API（対応環境のみ。iOS Safari等、非対応のブラウザでは
+  // 何もせず無視する＝全画面表示自体は従来どおり成立する）。
+  // 画面の向きロックは多くの環境で「全画面表示中であること」が条件になるため、
+  // requestElementFullscreen() の成否に関わらず（成功後／失敗後どちらでも）
+  // ベストエフォートで試すようにしている。
+  function lockLandscapeOrientation() {
+    const orientation = screen.orientation || screen.msOrientation || screen.mozOrientation;
+    if (!orientation || typeof orientation.lock !== "function") {
+      return Promise.reject(new Error("screen orientation lock not supported"));
+    }
+    try {
+      const p = orientation.lock("landscape");
+      return (p && typeof p.then === "function") ? p : Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+  function unlockOrientation() {
+    const orientation = screen.orientation || screen.msOrientation || screen.mozOrientation;
+    if (orientation && typeof orientation.unlock === "function") {
+      try { orientation.unlock(); } catch (e) { /* 無視 */ }
+    }
+  }
+
+  function applyFsModeOn() {
+    document.body.classList.add("fs-mode");
+    fullscreenBtn.title = "全画面表示を終了";
+    fullscreenBtn.setAttribute("aria-label", "全画面表示を終了");
+    enterFsOverlay();
+  }
+  function applyFsModeOff() {
+    document.body.classList.remove("fs-mode");
+    fullscreenBtn.title = "全画面表示";
+    fullscreenBtn.setAttribute("aria-label", "全画面表示");
+    restoreFsOverlay();
+    // A-Bループのボタンは全画面表示専用のため、通常表示に戻ると操作できなくなる。
+    // ループが有効なまま気づかず残ることがないよう、ここで必ず解除しておく
+    if (typeof setAbLoop === "function") setAbLoop(false);
+    // 全画面表示中に固定した画面の向きを解除し、端末の向きに合わせて
+    // 自由に回転できる状態に戻す（非対応環境では何もしない）
+    unlockOrientation();
+  }
+
+  fullscreenBtn.addEventListener("click", () => {
+    if (!isFullscreenMode) {
+      isFullscreenMode = true;
+      applyFsModeOn();
+      // 対応環境ではブラウザのアドレスバー等も隠す本物の全画面表示を試みる。
+      // 非対応・失敗時も position:fixed 表示は既に適用済みなので見た目は崩れない。
+      // 続けて横向きに固定する（「全画面にしたら横向きにしてほしい」との要望）。
+      // 全画面表示の成否にかかわらずベストエフォートで試すため、
+      // requestElementFullscreenの結果を問わず.then/.catchで両方から
+      // lockLandscapeOrientation()を呼ぶ形にしている。
+      requestElementFullscreen(videoWrap)
+        .catch(() => { /* 疑似全画面のまま続行 */ })
+        .then(() => lockLandscapeOrientation())
+        .catch(() => { /* 画面の向き固定は非対応環境（iOS Safari等）では無視して続行 */ });
+    } else {
+      isFullscreenMode = false;
+      applyFsModeOff();
+      exitElementFullscreen();
+    }
+  });
+
+  // Androidの「戻る」操作などでネイティブ全画面表示だけが解除された場合に、
+  // アプリ側の表示状態（fs-mode・オーバーレイパネル）も追従させてズレを防ぐ
+  function onNativeFullscreenChange() {
+    if (isFullscreenMode && !currentFullscreenElement()) {
+      isFullscreenMode = false;
+      applyFsModeOff();
+    }
+  }
+  document.addEventListener("fullscreenchange", onNativeFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onNativeFullscreenChange);
+
+  /* =========================================================
+   *  全画面表示専用の「開始位置/終了位置/A-Bループ」3ボタン行（fsAbRow）
+   *  ・開始位置/終了位置は、既存の markStartBtn/markEndBtn へのクリック委譲
+   *    （同じ判定ロジック・トースト表示をそのまま利用し、ロジックの重複を避ける）
+   *  ・A-Bループは今回新規追加した機能：現在の開始〜終了（state.startTime〜
+   *    state.endTime）の範囲だけをプレビュー内でループ再生する。ボタン自体が
+   *    トグル（もう一度押すとOFF）のため、別途「解除」ボタンは設けていない
+   * ======================================================= */
+  const fsMarkStartBtn = $("fsMarkStartBtn");
+  const fsMarkEndBtn = $("fsMarkEndBtn");
+  const abLoopBtn = $("abLoopBtn");
+  let abLoopEnabled = false;
+
+  fsMarkStartBtn.addEventListener("click", () => markStartBtn.click());
+  fsMarkEndBtn.addEventListener("click", () => markEndBtn.click());
+
+  function setAbLoop(enabled) {
+    abLoopEnabled = enabled;
+    abLoopBtn.classList.toggle("active-toggle", enabled);
+    // 背景色のハイライトだけでなく、ラベルの文言自体もON/OFFで変えることで、
+    // 半透明パネル上でも一目でループ中かどうか分かるようにする
+    abLoopBtn.textContent = enabled ? "■ ループ再生中" : "A-Bループ";
+  }
+
+  abLoopBtn.addEventListener("click", () => {
+    if (abLoopEnabled) {
+      setAbLoop(false);
+      return;
+    }
+    if (state.duration <= 0 || state.endTime - state.startTime < 0.1) return;
+    setAbLoop(true);
+    previewVideo.currentTime = state.startTime;
+    previewVideo.play().catch(() => { /* 自動再生が拒否された場合は無視 */ });
+  });
+  // 再生位置が終了位置に達したら、開始位置へ巻き戻して再生を続ける
+  previewVideo.addEventListener("timeupdate", () => {
+    if (!abLoopEnabled) return;
+    if (previewVideo.currentTime >= state.endTime - 0.05) {
+      previewVideo.currentTime = state.startTime;
+      previewVideo.play().catch(() => { /* 無視 */ });
+    }
+  });
+
+  /* =========================================================
+   *  動画に重ねる「操作フィードバック」バッジ
+   *  ・1秒/10秒送り戻しボタンを押した内容（◀1秒 等）を一瞬表示
+   *  ・動画をなぞっている間は、今の再生位置（秒数）をリアルタイムに表示
+   * ======================================================= */
+  const scrubBadge = $("scrubBadge");
+  let scrubBadgeHideTimer = null;
+  function showScrubBadgeText(text) {
+    scrubBadge.textContent = text;
+    scrubBadge.classList.add("show");
+  }
+  function flashScrubBadge(text, ms) {
+    clearTimeout(scrubBadgeHideTimer);
+    showScrubBadgeText(text);
+    scrubBadgeHideTimer = setTimeout(() => scrubBadge.classList.remove("show"), ms || 700);
+  }
+
+  $("stepBackBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 1);
+    flashScrubBadge("◀ 1秒");
+  });
+  $("stepFwdBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 1);
+    flashScrubBadge("1秒 ▶");
+  });
+  // 3秒送り戻し（1秒・10秒の間の刻み幅として追加）
+  $("step3BackBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 3);
+    flashScrubBadge("◀ 3秒");
+  });
+  $("step3FwdBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 3);
+    flashScrubBadge("3秒 ▶");
+  });
+  $("step10BackBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.max(0, previewVideo.currentTime - 10);
+    flashScrubBadge("◀◀ 10秒");
+  });
+  $("step10FwdBtn").addEventListener("click", () => {
+    previewVideo.currentTime = Math.min(state.duration, previewVideo.currentTime + 10);
+    flashScrubBadge("10秒 ▶▶");
+  });
+
+  /* =========================================================
+   *  動画プレビューを左右になぞって早送り/巻き戻し
+   *  （右になぞる=進む／左になぞる=戻る。指を動かした分だけリアルタイムに移動する）
+   * ======================================================= */
+  const VIDEO_SWIPE_PIXELS_PER_SECOND = 6; // 6pxのドラッグ＝1秒移動（小さいほど速く動く）
+  const VIDEO_SWIPE_THRESHOLD_PX = 4; // これ未満の移動はタップとみなしスワイプ扱いしない
+
+  function clampTime(t, duration) {
+    return Math.max(0, Math.min(duration, t));
+  }
+
+  let videoSwipe = null; // { pointerId, startX, startTime, wasPlaying, moved }
+
+  previewVideo.addEventListener("pointerdown", (e) => {
+    if (!state.duration) return;
+    videoSwipe = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startTime: previewVideo.currentTime,
+      wasPlaying: !previewVideo.paused,
+      moved: false,
+    };
+  });
+
+  function onVideoSwipeMove(e) {
+    if (!videoSwipe || e.pointerId !== videoSwipe.pointerId) return;
+    const dx = e.clientX - videoSwipe.startX;
+    if (!videoSwipe.moved) {
+      if (Math.abs(dx) < VIDEO_SWIPE_THRESHOLD_PX) return;
+      videoSwipe.moved = true;
+      previewVideo.classList.add("scrubbing");
+      if (videoSwipe.wasPlaying) previewVideo.pause();
+    }
+    const dt = dx / VIDEO_SWIPE_PIXELS_PER_SECOND;
+    const t = clampTime(videoSwipe.startTime + dt, state.duration);
+    previewVideo.currentTime = t;
+    // なぞっている間は継続表示（自動で消えないよう、都度タイマーをクリアする）
+    clearTimeout(scrubBadgeHideTimer);
+    showScrubBadgeText(formatTime(t));
+  }
+  function onVideoSwipeEnd(e) {
+    if (!videoSwipe || e.pointerId !== videoSwipe.pointerId) return;
+    const { wasPlaying, moved } = videoSwipe;
+    previewVideo.classList.remove("scrubbing");
+    videoSwipe = null;
+    if (moved) flashScrubBadge(formatTime(previewVideo.currentTime), 600);
+    if (wasPlaying && moved) previewVideo.play().catch(() => {});
+  }
+  window.addEventListener("pointermove", onVideoSwipeMove);
+  window.addEventListener("pointerup", onVideoSwipeEnd);
+  window.addEventListener("pointercancel", onVideoSwipeEnd);
+
+  /* =========================================================
+   *  「ここが切り取り範囲です」バッジ
+   *  ※ このバッジはプレビュー画面上の表示のみで、保存される動画には一切反映されない
+   *    （抽出は別の非表示video要素 extractVideo から行っているため）
+   * ======================================================= */
+  const rangeBadge = $("rangeBadge");
+  function updateRangeBadge() {
+    if (state.duration <= 0) { rangeBadge.classList.remove("show"); return; }
+    const t = previewVideo.currentTime;
+    const inRange = t >= state.startTime - 0.05 && t <= state.endTime + 0.05;
+    rangeBadge.classList.toggle("show", inRange);
+  }
+  previewVideo.addEventListener("timeupdate", updateRangeBadge);
+  previewVideo.addEventListener("seeked", updateRangeBadge);
+  previewVideo.addEventListener("timeupdate", updatePlayhead);
+  previewVideo.addEventListener("seeked", updatePlayhead);
+
+  /* =========================================================
+   *  保存先フォルダ（File System Access API）
+   * ======================================================= */
+  async function ensureDirPermission() {
+    if (!state.dirHandle) return false;
+    const opts = { mode: "readwrite" };
+    try {
+      if ((await state.dirHandle.queryPermission(opts)) === "granted") return true;
+      if ((await state.dirHandle.requestPermission(opts)) === "granted") return true;
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  async function refreshFolderStatus() {
+    const box = $("folderStatusBox");
+    const permWrap = $("permBtnWrap");
+    $("unsupportedWarn").style.display = FEATURE.fsAccess ? "none" : "block";
+
+    if (!FEATURE.fsAccess) {
+      box.innerHTML = '<div class="dot bad"></div><div>この端末はフォルダ指定に非対応です。保存はダウンロードフォルダに行われます。</div>';
+      permWrap.style.display = "none";
+      return;
+    }
+    if (!state.dirHandle) {
+      box.innerHTML = '<div class="dot warn"></div><div>未設定です。フォルダを選択してください。</div>';
+      permWrap.style.display = "none";
+      return;
+    }
+    const granted = await (async () => {
+      try { return (await state.dirHandle.queryPermission({ mode: "readwrite" })) === "granted"; }
+      catch (e) { return false; }
+    })();
+    if (granted) {
+      box.innerHTML = '<div class="dot ok"></div><div>保存先: <b>' + escapeHtml(state.dirHandle.name) + '</b></div>';
+      permWrap.style.display = "none";
+    } else {
+      box.innerHTML = '<div class="dot warn"></div><div>保存先: ' + escapeHtml(state.dirHandle.name) + '（許可が必要です）</div>';
+      permWrap.style.display = "block";
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  $("pickFolderBtn").addEventListener("click", async () => {
+    if (!FEATURE.fsAccess) {
+      toast("このブラウザはフォルダ選択に対応していません");
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      state.dirHandle = handle;
+      await idbSet("saveDir", handle);
+      toast("保存先を設定しました: " + handle.name);
+      refreshFolderStatus();
+      updateFolderWarnBox();
+    } catch (e) {
+      if (e && e.name !== "AbortError") toast("フォルダの選択に失敗しました");
+    }
+  });
+
+  $("grantPermBtn").addEventListener("click", async () => {
+    const ok = await ensureDirPermission();
+    toast(ok ? "許可されました" : "許可されませんでした");
+    refreshFolderStatus();
+    updateFolderWarnBox();
+  });
+
+  async function restoreSavedFolder() {
+    try {
+      const handle = await idbGet("saveDir");
+      if (handle) {
+        state.dirHandle = handle;
+      }
+    } catch (e) { /* ignore */ }
+    refreshFolderStatus();
+    updateFolderWarnBox();
+  }
+
+  function updateFolderWarnBox() {
+    const box = $("folderWarnBox");
+    if (!FEATURE.fsAccess) {
+      box.style.display = "block";
+      box.textContent = "フォルダ指定に非対応の端末のため、保存ボタンを押すとダウンロードフォルダに保存されます。";
+    } else if (!state.dirHandle) {
+      box.style.display = "block";
+      box.textContent = "保存先フォルダが未設定です。「保存先設定」タブで設定してください（未設定のままでもダウンロードフォルダに保存できます）。";
+    } else {
+      box.style.display = "none";
+    }
+  }
+
+  /* =========================================================
+   *  4. 抽出＆保存（captureStream + MediaRecorder）
+   * ======================================================= */
+  function pickMimeType() {
+    const candidates = [
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4",
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ];
+    for (const c of candidates) {
+      try { if (MediaRecorder.isTypeSupported(c)) return c; } catch (e) {}
+    }
+    return "";
+  }
+
+  /*
+   * MediaRecorderがMP4で出力する動画は「フラグメント化(fragmented)」された構造になっており、
+   * 中身の映像・音声データ自体は正しく全部入っているものの、通常のMP4が持つはずの「サンプル一覧
+   * 表」がファイル冒頭にまとまって入っておらず、moof/mdatという断片の繰り返しに分散している。
+   * これを理解できないアプリ(MXPlayerなど)やアップロード先(Threadsなど)は、最初の断片(数秒分)
+   * だけを動画の全部だと誤認識し、そこで切れてしまう。
+   * この関数は、抽出直後のファイルを読み直して「断片化されていない」通常のMP4構造に組み直す
+   * (映像・音声のバイト列そのものは一切変更せず、コンテナのメタデータだけを作り直すため、
+   * 画質・音質の劣化や再エンコードは発生しない)。想定外の構造だった場合は null を返し、
+   * 呼び出し側は元のファイルをそのまま使う。
+   */
+  function remuxFragmentedMp4(arrayBuffer) {
+    try {
+      const dv = new DataView(arrayBuffer);
+      const bytes = new Uint8Array(arrayBuffer);
+      const len = arrayBuffer.byteLength;
+
+      function readBoxHeader(off) {
+        const size32 = dv.getUint32(off);
+        const type = String.fromCharCode(bytes[off + 4], bytes[off + 5], bytes[off + 6], bytes[off + 7]);
+        let header = 8, size;
+        if (size32 === 1) {
+          const hi = dv.getUint32(off + 8), lo = dv.getUint32(off + 12);
+          size = hi * 4294967296 + lo;
+          header = 16;
+        } else if (size32 === 0) {
+          size = len - off;
+        } else {
+          size = size32;
+        }
+        return { type, size, header };
+      }
+      function children(start, end) {
+        const out = [];
+        let off = start;
+        while (off + 8 <= end) {
+          const b = readBoxHeader(off);
+          if (b.size < b.header) break;
+          out.push({ type: b.type, off, size: b.size, header: b.header });
+          off += b.size;
+        }
+        return out;
+      }
+
+      const top = children(0, len);
+      const ftyp = top.find((b) => b.type === "ftyp");
+      const moov = top.find((b) => b.type === "moov");
+      const moofs = top.filter((b) => b.type === "moof");
+      const mdats = top.filter((b) => b.type === "mdat");
+      if (!ftyp || !moov || moofs.length === 0 || mdats.length === 0) return null;
+
+      const moovChildren = children(moov.off + moov.header, moov.off + moov.size);
+      const mvhd = moovChildren.find((b) => b.type === "mvhd");
+      if (!mvhd) return null;
+      const mvhdDataOff = mvhd.off + mvhd.header;
+      const mvhdVersion = bytes[mvhdDataOff];
+      const movieTimescale = dv.getUint32(mvhdDataOff + 4 + (mvhdVersion === 1 ? 16 : 8));
+
+      const traks = moovChildren.filter((b) => b.type === "trak");
+      if (traks.length === 0) return null;
+
+      const trackInfo = new Map();
+      traks.forEach((trak) => {
+        const tc = children(trak.off + trak.header, trak.off + trak.size);
+        const tkhd = tc.find((b) => b.type === "tkhd");
+        const mdia = tc.find((b) => b.type === "mdia");
+        if (!tkhd || !mdia) return;
+        const tkhdDataOff = tkhd.off + tkhd.header;
+        const tkhdVersion = bytes[tkhdDataOff];
+        const trackId = dv.getUint32(tkhdDataOff + 4 + (tkhdVersion === 1 ? 16 : 8));
+
+        const mc = children(mdia.off + mdia.header, mdia.off + mdia.size);
+        const mdhd = mc.find((b) => b.type === "mdhd");
+        const hdlr = mc.find((b) => b.type === "hdlr");
+        const minf = mc.find((b) => b.type === "minf");
+        if (!mdhd || !hdlr || !minf) return;
+        const mdhdDataOff = mdhd.off + mdhd.header;
+        const mdhdVersion = bytes[mdhdDataOff];
+        const mediaTimescale = dv.getUint32(mdhdDataOff + 4 + (mdhdVersion === 1 ? 16 : 8));
+
+        const minfChildren = children(minf.off + minf.header, minf.off + minf.size);
+        const stbl = minfChildren.find((b) => b.type === "stbl");
+        if (!stbl) return;
+        const stblChildren = children(stbl.off + stbl.header, stbl.off + stbl.size);
+        const stsd = stblChildren.find((b) => b.type === "stsd");
+        if (!stsd) return;
+        const otherMinf = minfChildren.filter((b) => b.type !== "stbl");
+
+        trackInfo.set(trackId, {
+          tkhd, tkhdVersion, mdhd, mdhdVersion, hdlr, otherMinf, stsd,
+          mediaTimescale, samples: [],
+        });
+      });
+      if (trackInfo.size === 0) return null;
+
+      // moof/traf/trun をすべて走査し、各サンプルの(サイズ・長さ・ファイル上の位置)を集める
+      moofs.forEach((moof) => {
+        const mc = children(moof.off + moof.header, moof.off + moof.size);
+        mc.filter((b) => b.type === "traf").forEach((traf) => {
+          const tc = children(traf.off + traf.header, traf.off + traf.size);
+          const tfhd = tc.find((b) => b.type === "tfhd");
+          const trun = tc.find((b) => b.type === "trun");
+          if (!tfhd || !trun) return;
+
+          const tfhdDataOff = tfhd.off + tfhd.header;
+          const tfhdFlags = dv.getUint32(tfhdDataOff) & 0x00ffffff;
+          let p = tfhdDataOff + 4;
+          const trackId = dv.getUint32(p); p += 4;
+          let baseDataOffset = null;
+          if (tfhdFlags & 0x000001) { const hi = dv.getUint32(p), lo = dv.getUint32(p + 4); baseDataOffset = hi * 4294967296 + lo; p += 8; }
+          if (tfhdFlags & 0x000002) { p += 4; }
+          let defaultSampleDuration = null;
+          if (tfhdFlags & 0x000008) { defaultSampleDuration = dv.getUint32(p); p += 4; }
+          let defaultSampleSize = null;
+          if (tfhdFlags & 0x000010) { defaultSampleSize = dv.getUint32(p); p += 4; }
+          if (tfhdFlags & 0x000020) { p += 4; }
+
+          const info = trackInfo.get(trackId);
+          if (!info) return;
+
+          const trunDataOff = trun.off + trun.header;
+          const trunFlags = dv.getUint32(trunDataOff) & 0x00ffffff;
+          let q = trunDataOff + 4;
+          const sampleCount = dv.getUint32(q); q += 4;
+          let dataOffset = 0;
+          if (trunFlags & 0x000001) { dataOffset = dv.getInt32(q); q += 4; }
+          if (trunFlags & 0x000004) { q += 4; }
+          const hasDur = !!(trunFlags & 0x000100);
+          const hasSize = !!(trunFlags & 0x000200);
+          const hasFlags = !!(trunFlags & 0x000400);
+          const hasCto = !!(trunFlags & 0x000800);
+
+          const base = (baseDataOffset != null ? baseDataOffset : moof.off) + dataOffset;
+          let curOffset = base;
+          for (let i = 0; i < sampleCount; i++) {
+            let dur = defaultSampleDuration, size = defaultSampleSize;
+            if (hasDur) { dur = dv.getUint32(q); q += 4; }
+            if (hasSize) { size = dv.getUint32(q); q += 4; }
+            if (hasFlags) { q += 4; }
+            if (hasCto) { q += 4; }
+            info.samples.push({ size, dur, offset: curOffset });
+            curOffset += size;
+          }
+        });
+      });
+      for (const info of trackInfo.values()) {
+        if (info.samples.length === 0) return null; // 想定外の構造。安全のため諦める
+      }
+
+      // mdatのデータ位置マッピング: 元ファイル上の絶対位置 -> 結合後の新しいmdat内での位置
+      const mdatSegments = mdats.map((m) => ({ start: m.off + m.header, end: m.off + m.size }));
+      function remapOffset(origOffset) {
+        let cum = 0;
+        for (const seg of mdatSegments) {
+          if (origOffset >= seg.start && origOffset < seg.end) return cum + (origOffset - seg.start);
+          cum += seg.end - seg.start;
+        }
+        return 0;
+      }
+
+      let overallDurationSec = 0;
+      trackInfo.forEach((info) => {
+        let totalTicks = 0;
+        info.samples.forEach((s) => { totalTicks += s.dur; });
+        info.totalDurationTicks = totalTicks;
+        info.totalDurationSec = totalTicks / info.mediaTimescale;
+        overallDurationSec = Math.max(overallDurationSec, info.totalDurationSec);
+      });
+      const movieDurationTicks = Math.round(overallDurationSec * movieTimescale);
+
+      function u32be(n) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n >>> 0); return b; }
+      function concatBytes(arrs) {
+        let total = 0; arrs.forEach((a) => { total += a.length; });
+        const out = new Uint8Array(total);
+        let off = 0; arrs.forEach((a) => { out.set(a, off); off += a.length; });
+        return out;
+      }
+      function makeBox(type, payload) {
+        const typeBytes = new Uint8Array([type.charCodeAt(0), type.charCodeAt(1), type.charCodeAt(2), type.charCodeAt(3)]);
+        return concatBytes([u32be(8 + payload.length), typeBytes, payload]);
+      }
+      function sliceBytes(off, size) { return bytes.slice(off, off + size); }
+      function patchDurationField(boxBytes, version, fieldOffsetInBox, value) {
+        const out = boxBytes.slice();
+        const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+        if (version === 1) {
+          view.setUint32(fieldOffsetInBox, Math.floor(value / 4294967296));
+          view.setUint32(fieldOffsetInBox + 4, value >>> 0);
+        } else {
+          view.setUint32(fieldOffsetInBox, value >>> 0);
+        }
+        return out;
+      }
+
+      const mvhdDurOffInBox = mvhd.header + 4 + (mvhdVersion === 1 ? 16 : 8) + 4;
+      const mvhdBytes = patchDurationField(sliceBytes(mvhd.off, mvhd.size), mvhdVersion, mvhdDurOffInBox, movieDurationTicks);
+
+      function buildStts(samples) {
+        const runs = [];
+        samples.forEach((s) => {
+          if (runs.length && runs[runs.length - 1][1] === s.dur) runs[runs.length - 1][0] += 1;
+          else runs.push([1, s.dur]);
+        });
+        const parts = [u32be(0), u32be(runs.length)];
+        runs.forEach((r) => { parts.push(u32be(r[0]), u32be(r[1])); });
+        return makeBox("stts", concatBytes(parts));
+      }
+      function buildStsz(samples) {
+        const parts = [u32be(0), u32be(0), u32be(samples.length)];
+        samples.forEach((s) => parts.push(u32be(s.size)));
+        return makeBox("stsz", concatBytes(parts));
+      }
+      function buildStsc() {
+        return makeBox("stsc", concatBytes([u32be(0), u32be(1), u32be(1), u32be(1), u32be(1)]));
+      }
+      function buildStco(samples, mdatPayloadStart) {
+        const parts = [u32be(0), u32be(samples.length)];
+        samples.forEach((s) => parts.push(u32be(mdatPayloadStart + remapOffset(s.offset))));
+        return makeBox("stco", concatBytes(parts));
+      }
+
+      function buildTrak(info, mdatPayloadStartPlaceholder) {
+        const tkhdDurOffInBox = info.tkhd.header + 4 + (info.tkhdVersion === 1 ? 24 : 16);
+        const trackDurTicksMovieTs = Math.round(info.totalDurationSec * movieTimescale);
+        const tkhdBytes = patchDurationField(sliceBytes(info.tkhd.off, info.tkhd.size), info.tkhdVersion, tkhdDurOffInBox, trackDurTicksMovieTs);
+
+        const mdhdDurOffInBox = info.mdhd.header + 4 + (info.mdhdVersion === 1 ? 20 : 12);
+        const mdhdBytes = patchDurationField(sliceBytes(info.mdhd.off, info.mdhd.size), info.mdhdVersion, mdhdDurOffInBox, info.totalDurationTicks);
+
+        const hdlrBytes = sliceBytes(info.hdlr.off, info.hdlr.size);
+        const stsdBytes = sliceBytes(info.stsd.off, info.stsd.size);
+        const otherMinfBytes = concatBytes(info.otherMinf.map((b) => sliceBytes(b.off, b.size)));
+
+        const newStbl = makeBox("stbl", concatBytes([
+          stsdBytes, buildStts(info.samples), buildStsc(), buildStsz(info.samples), buildStco(info.samples, mdatPayloadStartPlaceholder),
+        ]));
+        const newMinf = makeBox("minf", concatBytes([otherMinfBytes, newStbl]));
+        const newMdia = makeBox("mdia", concatBytes([mdhdBytes, hdlrBytes, newMinf]));
+        return makeBox("trak", concatBytes([tkhdBytes, newMdia]));
+      }
+
+      function buildMoov(mdatPayloadStartPlaceholder) {
+        const trakBoxes = [];
+        trackInfo.forEach((info) => { trakBoxes.push(buildTrak(info, mdatPayloadStartPlaceholder)); });
+        return makeBox("moov", concatBytes([mvhdBytes].concat(trakBoxes)));
+      }
+
+      const ftypBytes = sliceBytes(ftyp.off, ftyp.size);
+      const moovPass1 = buildMoov(0);
+      const newMdatPayloadStart = ftypBytes.length + moovPass1.length + 8;
+      const moovFinal = buildMoov(newMdatPayloadStart);
+      if (moovFinal.length !== moovPass1.length) return null; // 想定外。安全のため諦める
+
+      const mdatPayload = concatBytes(mdatSegments.map((seg) => bytes.slice(seg.start, seg.end)));
+      const newMdat = makeBox("mdat", mdatPayload);
+
+      return concatBytes([ftypBytes, moovFinal, newMdat]).buffer;
+    } catch (err) {
+      console.error("remuxFragmentedMp4 failed", err);
+      return null;
+    }
+  }
+
+  function makeCancelError() {
+    const e = new Error("キャンセルされました");
+    e.cancelled = true;
+    return e;
+  }
+
+  function extractClip(start, end, onProgress, cancelToken) {
+    return new Promise((resolve, reject) => {
+      const dur = end - start;
+      if (dur <= 0) { reject(new Error("終了位置は開始位置より後にしてください")); return; }
+
+      const ev = $("extractVideo");
+      ev.pause();
+      ev.src = state.videoURL;
+      ev.muted = false;
+      ev.volume = 0; // 抽出中の音量は下げる（キャプチャされる音声には影響しません）
+
+      let settled = false;
+      let seekTimeout = null;
+
+      const beginCapture = async () => {
+        if (settled) return;
+        settled = true;
+        ev.onseeked = null;
+        clearTimeout(seekTimeout);
+        try {
+          const stream = ev.captureStream ? ev.captureStream() : ev.mozCaptureStream();
+          const mimeType = pickMimeType();
+          const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+          const chunks = [];
+          rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+          let wasCancelled = false;
+          const stopped = new Promise((res) => { rec.onstop = res; });
+          rec.start(200);
+          await ev.play();
+
+          const startWall = performance.now();
+          // 端末の負荷で実再生がリアルタイムに追いつかない（コマ落ちや一時的な
+          // 停止が起きる）ことがあるため、経過時間(壁時計)だけで早期に打ち切らない。
+          // 打ち切りは「実際に end まで再生が進んだか」を主な基準にし、
+          // 経過時間の上限はあくまで“完全に固まった場合”の保険として大きめに取る。
+          const MAX_ELAPSED = dur * 4 + 10;
+          const tick = () => {
+            if (cancelToken && cancelToken.cancelled) {
+              wasCancelled = true;
+              ev.pause();
+              rec.stop();
+              return;
+            }
+            const elapsed = (performance.now() - startWall) / 1000;
+            if (onProgress) onProgress(Math.min(1, elapsed / dur));
+            if (ev.currentTime >= end - 0.05 || ev.ended) {
+              ev.pause();
+              rec.stop();
+              return;
+            }
+            if (elapsed >= MAX_ELAPSED) {
+              // 大幅に遅延・停止したままの場合のみ、保険として打ち切る
+              ev.pause();
+              rec.stop();
+              return;
+            }
+            if (ev.paused) {
+              // 一時的に再生が止まってしまった場合は再開を試みる（すぐには諦めない）
+              ev.play().catch(() => {});
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+
+          await stopped;
+          if (wasCancelled) { reject(makeCancelError()); return; }
+          const ext = mimeType.indexOf("mp4") !== -1 ? "mp4" : "webm";
+          let finalBlob = new Blob(chunks, { type: mimeType || "video/webm" });
+
+          // MediaRecorderが出力するmp4はフラグメント形式（ストリーミング向け）で、
+          // 動画/音声データ自体は正しく完全でも、内部の管理情報（長さなど）が
+          // プレースホルダのままのアプリが多い。一部のプレーヤー（MX Playerなど）や
+          // Threadsのようなアップロード先はこの形式のフラグメントを最初の一つしか
+          // 認識せず、実際には最後まで記録できているのに数秒で切れて見えてしまう。
+          // そこで書き出し後、mp4の場合は内部構造を通常の（フラグメントされていない）
+          // 形式に組み直す。映像・音声データ自体の再エンコードは行わないため、
+          // 画質・音質の劣化は発生しない。失敗した場合は元のファイルをそのまま使う。
+          if (ext === "mp4") {
+            if (cancelToken && cancelToken.cancelled) { reject(makeCancelError()); return; }
+            if (onProgress) onProgress(1);
+            try {
+              const rawBuffer = await finalBlob.arrayBuffer();
+              const fixedBuffer = remuxFragmentedMp4(rawBuffer);
+              if (fixedBuffer) {
+                finalBlob = new Blob([fixedBuffer], { type: mimeType || "video/mp4" });
+              }
+            } catch (remuxErr) {
+              console.error("mp4 remux failed, falling back to original file", remuxErr);
+            }
+          }
+
+          resolve({ blob: finalBlob, ext });
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      // 頭出し（指定した開始位置への実際のシーク完了）を確認してから抽出を始める。
+      // 実際に ev.currentTime が start に十分近づいたことを確認してから開始する方式で、
+      // シークに時間がかかる場合は最大約6秒まで待つ。
+      let seekAttempts = 0;
+      const MAX_SEEK_ATTEMPTS = 60;
+      const seekIsCloseEnough = () => Math.abs(ev.currentTime - start) < 0.35;
+
+      const pollSeekDone = () => {
+        if (settled) return;
+        if (cancelToken && cancelToken.cancelled) {
+          settled = true;
+          ev.onseeked = null;
+          clearTimeout(seekTimeout);
+          ev.pause();
+          reject(makeCancelError());
+          return;
+        }
+        if (seekIsCloseEnough()) {
+          beginCapture();
+          return;
+        }
+        seekAttempts++;
+        if (seekAttempts >= MAX_SEEK_ATTEMPTS) {
+          // 長時間待っても頭出しが完了しない場合は、無音のまま止まるより開始を優先する
+          beginCapture();
+          return;
+        }
+        seekTimeout = setTimeout(pollSeekDone, 100);
+      };
+
+      ev.onloadedmetadata = () => {
+        ev.onseeked = pollSeekDone;
+        ev.currentTime = start;
+        seekTimeout = setTimeout(pollSeekDone, 100);
+      };
+      ev.onerror = () => { settled = true; reject(new Error("動画の読み込みに失敗しました")); };
+    });
+  }
+
+  async function saveBlob(blob, filename) {
+    const ok = await ensureDirPermission();
+    if (ok && state.dirHandle) {
+      const fileHandle = await state.dirHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return { method: "folder" };
+    }
+    // フォールバック: ブラウザのダウンロード機能を使用
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return { method: "download" };
+  }
+
+  let activeExtractCancelToken = null;
+
+  async function handleSave(suffix) {
+    if (!state.currentFile) return;
+    if (!FEATURE.mediaRecorder || !FEATURE.captureStream) {
+      toast("このブラウザは動画抽出に対応していません");
+      return;
+    }
+    const dur = state.endTime - state.startTime;
+    if (dur <= 0.05) { toast("開始位置と終了位置を正しく設定してください"); return; }
+    if (dur > 300) {
+      const proceed = confirm("切り出し範囲が" + dur.toFixed(0) + "秒あります。抽出にほぼ同じ時間がかかりますが続けますか？");
+      if (!proceed) return;
+    }
+
+    previewVideo.pause();
+    const cancelToken = { cancelled: false };
+    activeExtractCancelToken = cancelToken;
+    setBusy(true, "抽出中...", "0% (" + dur.toFixed(1) + "秒分)");
+    document.querySelectorAll("#view-clip .btn").forEach((b) => (b.disabled = true));
+
+    try {
+      const { blob, ext } = await extractClip(state.startTime, state.endTime, (p) => {
+        setProgress(p);
+        $("busySub").textContent = Math.round(p * 100) + "% (" + dur.toFixed(1) + "秒分)";
+      }, cancelToken);
+      const base = sanitizeBase(state.currentFile.name);
+      const seq = nextSeq(base);
+      const filename = buildFilename(base, seq, suffix, ext);
+      const result = await saveBlob(blob, filename);
+
+      toast((result.method === "folder" ? "保存しました: " : "ダウンロードしました: ") + filename);
+
+      // 5. 「2に戻る」— 次の抽出開始位置を今回の終了位置にして続けて選べるようにする
+      state.startTime = state.endTime;
+      state.endTime = Math.min(state.duration, state.startTime + 5);
+      if (state.endTime <= state.startTime) state.endTime = state.duration;
+      previewVideo.currentTime = state.startTime;
+      ensureTimeVisible(state.startTime);
+      updateLabels();
+    } catch (err) {
+      if (err && err.cancelled) {
+        toast("書き出しをキャンセルしました");
+      } else {
+        console.error(err);
+        toast("保存に失敗しました: " + (err && err.message ? err.message : err));
+      }
+    } finally {
+      activeExtractCancelToken = null;
+      setBusy(false);
+      document.querySelectorAll("#view-clip .btn").forEach((b) => (b.disabled = false));
+    }
+  }
+
+  $("busyCancelBtn").addEventListener("click", () => {
+    if (!activeExtractCancelToken || activeExtractCancelToken.cancelled) return;
+    activeExtractCancelToken.cancelled = true;
+    const cancelBtn = $("busyCancelBtn");
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = "キャンセル中...";
+    $("busySub").textContent = "キャンセルしています…";
+  });
+
+  $("saveNormalBtn").addEventListener("click", () => handleSave(""));
+  $("saveNiceBtn").addEventListener("click", () => handleSave("Nice"));
+  $("saveFunBtn").addEventListener("click", () => handleSave("Fun"));
+  $("saveSnapshotBtn").addEventListener("click", () => handleSaveSnapshot());
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function formatTimeForFilename(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    return (h > 0 ? pad2(h) + "h" : "") + pad2(m) + "m" + pad2(s) + "s";
+  }
+
+  async function handleSaveSnapshot() {
+    if (!state.currentFile) return;
+    if (previewVideo.readyState < 2) {
+      toast("動画の読み込みが完了していません");
+      return;
+    }
+    const btn = $("saveSnapshotBtn");
+    btn.disabled = true;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = previewVideo.videoWidth || 1280;
+      canvas.height = previewVideo.videoHeight || 720;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) { toast("静止画の書き出しに失敗しました"); return; }
+      const base = sanitizeBase(state.currentFile.name);
+      const posLabel = formatTimeForFilename(previewVideo.currentTime);
+      const filename = base + "_" + posLabel + ".jpg";
+      const result = await saveBlob(blob, filename);
+      toast((result.method === "folder" ? "保存しました: " : "ダウンロードしました: ") + filename);
+    } catch (err) {
+      console.error(err);
+      toast("静止画の保存に失敗しました: " + (err && err.message ? err.message : err));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* =========================================================
+   *  保存済み一覧
+   * ======================================================= */
+  async function loadLibrary() {
+    const grid = $("libraryGrid");
+    // サムネイル表示用に作成したBlobURLは明示的に解放しないと残り続け、
+    // このタブに来るたびに増え続けて端末の動画デコーダーを圧迫する原因に
+    // なるため、一覧を作り直す前に必ず解放する。
+    state.libraryURLs.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    state.libraryURLs = [];
+    grid.innerHTML = "";
+
+    if (!FEATURE.fsAccess) {
+      grid.innerHTML = '<div class="empty-hint">この端末はフォルダ一覧の表示に対応していません。</div>';
+      return;
+    }
+    if (!state.dirHandle) {
+      grid.innerHTML = '<div class="empty-hint">保存先フォルダが未設定です。「保存先設定」タブで設定してください。</div>';
+      return;
+    }
+    const ok = await ensureDirPermission();
+    if (!ok) {
+      grid.innerHTML = '<div class="empty-hint">フォルダへのアクセス許可が必要です。「保存先設定」タブで許可してください。</div>';
+      return;
+    }
+
+    grid.innerHTML = '<div class="empty-hint">読み込み中...</div>';
+    const items = [];
+    try {
+      for await (const entry of state.dirHandle.values()) {
+        if (entry.kind === "file" && /\.(mp4|webm|mov|m4v)$/i.test(entry.name)) {
+          const file = await entry.getFile();
+          items.push({ name: entry.name, file });
+        }
+      }
+    } catch (e) {
+      grid.innerHTML = '<div class="empty-hint">フォルダの読み込みに失敗しました。</div>';
+      return;
+    }
+    items.sort((a, b) => b.file.lastModified - a.file.lastModified);
+
+    grid.innerHTML = "";
+    if (items.length === 0) {
+      grid.innerHTML = '<div class="empty-hint">まだ保存されたクリップがありません。</div>';
+      return;
+    }
+    for (const item of items) {
+      const url = URL.createObjectURL(item.file);
+      state.libraryURLs.push(url);
+      const card = document.createElement("div");
+      card.className = "lib-card";
+      card.innerHTML =
+        '<video src="' + url + '" muted preload="metadata" playsinline></video>' +
+        '<div class="meta"><div class="name">' + escapeHtml(item.name) + '</div>' +
+        '<div class="sub">' + formatBytes(item.file.size) + '</div></div>';
+      const vid = card.querySelector("video");
+      vid.addEventListener("loadedmetadata", () => { try { vid.currentTime = Math.min(0.3, vid.duration / 2); } catch (e) {} });
+      card.addEventListener("click", () => openPreview(url, item.name));
+      grid.appendChild(card);
+    }
+  }
+  $("refreshLibBtn").addEventListener("click", loadLibrary);
+
+  function openPreview(url, name) {
+    const mv = $("modalVideo");
+    mv.src = url;
+    $("previewOverlay").classList.add("active");
+    mv.play().catch(() => {});
+  }
+  $("closePreviewBtn").addEventListener("click", () => {
+    const mv = $("modalVideo");
+    mv.pause();
+    mv.removeAttribute("src");
+    mv.load();
+    $("previewOverlay").classList.remove("active");
+  });
+
+  /* =========================================================
+   *  初期化
+   * ======================================================= */
+  (async function init() {
+    if (!FEATURE.mediaRecorder || !FEATURE.captureStream) {
+      toast("このブラウザは動画抽出に対応していません。最新のGoogle Chromeでお試しください。", 6000);
+    }
+    await restoreSavedFolder();
+  })();
+})();
+</script>
+
+<!-- ============================================================
+     サポーター登録確認（Firebase Auth + Firestore）
+     tools/list.html, tools/index.html と同じFirebase設定・判定ロジックを
+     使用する。判定が終わるまで #app は非表示(#authOverlayが最前面)。
+     未ログイン・未登録の場合は tools/ のログインページへ戻す。
+     ============================================================ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  // ---- Firebase設定（tools/index.html, tools/list.htmlと同一） ----
+  const firebaseConfig = {
+    apiKey: "AIzaSyCn0rLPeyN_hw3_lLaYw1UMAzsSK3DpxuM",
+    authDomain: "team-video-uploader-503720.firebaseapp.com",
+    projectId: "team-video-uploader-503720",
+    storageBucket: "team-video-uploader-503720.firebasestorage.app",
+    messagingSenderId: "551674365524",
+    appId: "1:551674365524:web:f67d5524bc0b3ccec70fc1",
+    measurementId: "G-S97JSJJC1N"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+  const db = getFirestore(fbApp);
+
+  // ---- 管理者アカウント ----
+  // ここに載せたメールアドレスは、Firestoreのサポーター登録状況にかかわらず
+  // 常にツールを利用できる（tools/index.html, tools/list.htmlと同じリスト）
+  const ADMIN_EMAILS = ["akzds5456@gmail.com"];
+
+  // 未ログイン・未登録の場合の戻り先
+  const TOOLS_URL = "https://brick-volleyball.github.io/tools/";
+
+  const authOverlay = document.getElementById("authOverlay");
+  const authSpinner = document.getElementById("authSpinner");
+  const authStatusLabel = document.getElementById("authStatusLabel");
+  const appRoot = document.getElementById("app");
+
+  function showApp() {
+    authOverlay.classList.remove("active");
+    appRoot.classList.add("ready");
+  }
+
+  function blockAndRedirect(msg) {
+    authSpinner.style.display = "none";
+    authStatusLabel.textContent = msg;
+    setTimeout(() => { window.location.href = TOOLS_URL; }, 1500);
+  }
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user || !user.email) {
+      blockAndRedirect("サポーター登録が必要です。ログインページへ移動します…");
+      return;
+    }
+
+    // 管理者アカウントは登録状況を見ずに常に許可
+    if (ADMIN_EMAILS.includes(user.email)) {
+      console.log("[BRICK DEBUG] 管理者アカウントのため制限なしで許可:", user.email);
+      showApp();
+      return;
+    }
+
+    try {
+      const subRef = doc(db, "subscriptions", user.email);
+      const subSnap = await getDoc(subRef);
+
+      if (subSnap.exists()) {
+        const data = subSnap.data();
+        const isActive = data.status === "active";
+        const notExpired = !data.currentPeriodEnd || (new Date(data.currentPeriodEnd.toDate ? data.currentPeriodEnd.toDate() : data.currentPeriodEnd) > new Date());
+
+        if (isActive && notExpired) {
+          showApp();
+          return;
+        }
+      }
+
+      blockAndRedirect("サポーター登録が確認できませんでした。ログインページへ戻ります…");
+    } catch (err) {
+      console.error(err);
+      blockAndRedirect("確認中にエラーが発生しました。ログインページへ戻ります…");
+    }
+  });
+</script>
+
+</body>
+</html>
