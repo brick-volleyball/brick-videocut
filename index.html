@@ -6,7 +6,7 @@
 <title>BRICK 動画クリッパー</title>
 <!-- ============================================================
      BRICK 動画クリッパー
-     最終更新日時: 2026-09-07 16:44 JST
+     最終更新日時: 2026-09-07 20:48 JST
      ------------------------------------------------------------
      2026-08-22: Firebase Auth + Firestoreによるサポーター登録確認の
      ガードを追加。未ログイン/未登録のユーザーは自動的に
@@ -551,6 +551,52 @@
        確認済み。構文チェック・重複id・$()参照の整合性チェックも実施し、問題なし。
        （FS_MOVABLES・enterFsOverlay()等のDOM再配置ロジック自体は変更していないため、
        jsdomでの再配置ロジックの再テストは不要と判断した）
+
+     2026-09-07: 保存されるクリップのファイル名が、元の動画ファイル名（例:
+     VID2026...）とは無関係な数字の羅列（例: 763523.mp4）になってしまう不具合を
+     修正（v17）。ユーザーからの報告を受けて調査した結果、これはAndroid 13以降の
+     Chromeの仕様によるものと判明した：<input type="file" accept="video/*">で
+     動画を選ぶと、OS標準の「フォトピッカー」というUIが開くが、このピッカーは
+     プライバシー保護のため、実際のファイル名をアプリ側に一切渡さず、意図的に
+     無関係な数字だけの名前にすり替えて渡す仕様になっている（Googleの公式
+     Issue Trackerでも「意図した挙動」として対応済みの既知の仕様であり、Chromeや
+     本アプリ側のバグではない）。これまで保存ファイル名のベースに
+     `sanitizeBase(state.currentFile.name)`（選んだファイルの名前そのもの）を
+     使っていたため、この意味のない数字がそのまま保存クリップのファイル名にも
+     伝播してしまっていた。
+     ・ユーザーと相談の上、「撮影日時・作成日時の情報をもとにファイル名を決める」
+       方式を採用した。ファイル名には一切頼らず、動画ファイル自体に埋め込まれた
+       撮影/作成日時（MP4コンテナのmoov > mvhdボックスのcreation_time）を読み取り、
+       `YYYYMMDDHHMM`形式のベース名を作る（`resolveClipBaseName()`/
+       `readMp4CreationDate()`/`findMp4Box()`を新設）。この情報はファイルの中身
+       （バイト列）そのものに含まれるため、フォトピッカー経由でファイル名だけが
+       すり替えられても影響を受けない。
+     ・`findMp4Box()`はMP4（ISO-BMFF）のボックス構造をヘッダーだけ読みながら
+       先頭から走査する実装にしたため、moovボックスが（多くのAndroidカメラ動画で
+       よくあるように）巨大なmdatボックスより後ろにあっても、mdatの中身自体を
+       読み込むことなく高速にスキップしてmoovへたどり着ける。mvhdのversion
+       （0=32bitフィールド／1=64bitフィールド）both対応。
+     ・mvhdのcreation_timeが取得できない場合（0＝未設定、非対応フォーマット、
+       解析失敗等）は、ファイルの更新日時（`File.lastModified`）へフォールバックし、
+       それも異常な値（1970年付近や未来日時等）であれば、最後は動画を選択した
+       瞬間の現在時刻を使う、という3段階のフォールバック連鎖にした
+       （`isPlausibleDate()`で2000年〜現在+1日の範囲かを検証）。
+     ・ベース名の決定は動画ファイルの中身を読むため非同期処理になる。動画を
+       選択した`loadVideoFile()`の時点で解決を開始し`state.baseNamePromise`に
+       保持しておき、実際に保存する`handleSave()`/`handleSaveSnapshot()`側で
+       これをawaitして使う設計にした。動画を選んでからシーンを探して保存する
+       までには通常十分な時間があるため、実際にはほぼ待たされることなく、かつ
+       同じ動画から複数回保存しても常に同じベース名（＝同じ連番系列）になることを
+       保証している。
+     ・新設した`findMp4Box()`/`readMp4CreationDate()`/`isPlausibleDate()`/
+       `formatDateForBaseName()`/`resolveClipBaseName()`は、Node.jsで合成した
+       MP4バイナリ（version0/version1のmvhd、moovがmdatより後ろにあるケース、
+       creation_time未設定、moov自体が無いケース、lastModifiedへのフォールバック、
+       フォールバックの優先順位等）を使った単体テストで正しさを確認済み
+       （17アサーション全てパス）。既存の`sanitizeBase()`関数はフォールバックの
+       安全策として両保存処理に残してあるが、通常はもう使われない。構文チェック・
+       重複id・`$()`参照の整合性も再確認済み。実機での見え方（実際のAndroid端末で
+       撮影した動画から正しい日時が読み取れるか）は次回確認予定。
      ============================================================ -->
 <style>
   :root {
@@ -1302,7 +1348,7 @@
         </div>
       </div>
       <div class="card" style="text-align:center;">
-        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-09-07 16:44</div>
+        <div style="font-size:11px; color:var(--text-dim);">バージョン: v2026-09-07 20:48</div>
       </div>
     </section>
 
@@ -1360,6 +1406,7 @@
     endTime: 0,
     dirHandle: null,
     libraryURLs: [],
+    baseNamePromise: null, // [v17] 保存ファイル名のベース（撮影日時ベース）を解決するPromise
   };
 
   const FEATURE = {
@@ -1428,6 +1475,132 @@
 
   function buildFilename(base, seq, suffix, ext) {
     return base + "_" + pad4(seq) + (suffix ? "_" + suffix : "") + "." + ext;
+  }
+
+  /* =========================================================
+   *  [v17] 動画ファイルの「撮影日時」に基づくベースファイル名の決定
+   *
+   *  Android 13以降のChromeでは、<input type="file" accept="video/*"> で
+   *  動画を選ぶと、OS標準の「フォトピッカー」というUIが開く。このピッカーは
+   *  プライバシー保護のため、実際のファイル名（例: VID_20260906_153000.mp4）を
+   *  アプリ側に一切渡さず、意図的に無関係な数字だけの名前（例: 763523.mp4）に
+   *  すり替えて渡す仕様になっている（Google側で「意図した挙動」として
+   *  対応済みの既知の仕様であり、Chromeや本アプリのバグではない）。
+   *  これまでファイル名（sanitizeBase(state.currentFile.name)）をそのまま
+   *  保存ファイル名のベースに使っていたため、この意味のない数字名が
+   *  保存されるクリップのファイル名にもそのまま伝播してしまっていた。
+   *
+   *  対応として、ファイル名には一切頼らず、動画ファイル自体に埋め込まれた
+   *  撮影/作成日時（MP4コンテナのmoov > mvhdボックスのcreation_time）を
+   *  読み取り、そこから「YYYYMMDDHHMM」形式のベース名を作る方式に変更した。
+   *  この情報はファイルの中身（バイト列）そのものに含まれるため、
+   *  どのピッカー経由で選んでもファイル名の書き換えの影響を受けない。
+   *  mvhdのcreation_timeが取得できない（0または非対応形式）場合は、
+   *  ファイルの更新日時（File.lastModified）→それも取れなければ選択した
+   *  瞬間の時刻、の順にフォールバックする。
+   * ======================================================= */
+  function pad2Num(n) { return String(n).padStart(2, "0"); }
+
+  function formatDateForBaseName(date) {
+    return (
+      date.getFullYear() +
+      pad2Num(date.getMonth() + 1) +
+      pad2Num(date.getDate()) +
+      pad2Num(date.getHours()) +
+      pad2Num(date.getMinutes())
+    );
+  }
+
+  // 撮影日時として妥当な範囲か（2000-01-01〜現在+1日）を確認する。
+  // mvhdのcreation_time未設定（0）や、端末の時計ズレ等による異常値を弾く。
+  function isPlausibleDate(date) {
+    if (!(date instanceof Date) || isNaN(date.getTime())) return false;
+    const t = date.getTime();
+    const MIN = Date.UTC(2000, 0, 1);
+    const MAX = Date.now() + 24 * 60 * 60 * 1000;
+    return t >= MIN && t <= MAX;
+  }
+
+  // MP4（ISO-BMFF）コンテナのボックスを[rangeStart, rangeEnd)の範囲内で
+  // 先頭から走査し、指定タイプの最初のボックスの{offset, size, headerSize}を
+  // 返す（見つからなければnull）。ボックス本体は読み込まず、ヘッダー
+  // （8〜16バイト）だけを読んで次のボックスへ飛ぶため、巨大なmdatボックスが
+  // 手前にあっても実際にその中身を読み込むことなく高速にスキップできる。
+  async function findMp4Box(file, rangeStart, rangeEnd, boxType) {
+    let offset = rangeStart;
+    let guard = 0;
+    while (offset < rangeEnd && guard < 1000) {
+      guard++;
+      if (offset + 8 > rangeEnd) return null;
+      const headBuf = await file.slice(offset, Math.min(offset + 16, rangeEnd)).arrayBuffer();
+      const head = new DataView(headBuf);
+      if (head.byteLength < 8) return null;
+      let size = head.getUint32(0);
+      const type = String.fromCharCode(head.getUint8(4), head.getUint8(5), head.getUint8(6), head.getUint8(7));
+      let headerSize = 8;
+      if (size === 1) {
+        // 64bit拡張サイズ（largesize）
+        if (head.byteLength < 16) return null;
+        const hi = head.getUint32(8);
+        const lo = head.getUint32(12);
+        size = hi * 4294967296 + lo;
+        headerSize = 16;
+      } else if (size === 0) {
+        // size===0は「このボックスがファイル末尾まで続く」という意味
+        size = rangeEnd - offset;
+      }
+      if (size < headerSize) return null; // 壊れたボックス。安全のため打ち切る
+      if (type === boxType) return { offset: offset, size: size, headerSize: headerSize };
+      offset += size;
+    }
+    return null;
+  }
+
+  // MP4ファイルからmoov > mvhdのcreation_time（1904-01-01からの経過秒数、
+  // QuickTime/ISO-BMFF共通のエポック）を読み取り、JavaScriptのDateに変換して
+  // 返す。moov/mvhdが見つからない、またはcreation_timeが0（未設定）の場合は
+  // nullを返す（webm等の非対応フォーマットも含め、例外は握りつぶしてnullに
+  // フォールバックする＝この情報が取れなくても動画の読み込み自体は必ず続行する）。
+  async function readMp4CreationDate(file) {
+    try {
+      const moov = await findMp4Box(file, 0, file.size, "moov");
+      if (!moov) return null;
+      const mvhd = await findMp4Box(file, moov.offset + moov.headerSize, moov.offset + moov.size, "mvhd");
+      if (!mvhd) return null;
+      const buf = await file.slice(mvhd.offset + mvhd.headerSize, mvhd.offset + mvhd.headerSize + 20).arrayBuffer();
+      const dv = new DataView(buf);
+      if (dv.byteLength < 8) return null;
+      const version = dv.getUint8(0);
+      let creationTimeSec;
+      if (version === 1) {
+        if (dv.byteLength < 20) return null;
+        const hi = dv.getUint32(4);
+        const lo = dv.getUint32(8);
+        creationTimeSec = hi * 4294967296 + lo;
+      } else {
+        creationTimeSec = dv.getUint32(4);
+      }
+      if (!creationTimeSec) return null; // 0は「未設定」を意味することが多い
+      const unixSec = creationTimeSec - 2082844800; // Mac(1904)エポック→Unix(1970)エポック
+      return new Date(unixSec * 1000);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // 撮影/作成日時を「MP4メタデータのcreation_time → ファイルの更新日時
+  // （File.lastModified） → 現在時刻（選択した瞬間）」の順に試し、最初に
+  // 妥当な値が取れたものから「YYYYMMDDHHMM」形式のベース名を作る。
+  async function resolveClipBaseName(file) {
+    let date = null;
+    const mp4Date = await readMp4CreationDate(file);
+    if (isPlausibleDate(mp4Date)) date = mp4Date;
+    if (!date) {
+      const lm = new Date(file.lastModified);
+      if (isPlausibleDate(lm)) date = lm;
+    }
+    if (!date) date = new Date();
+    return formatDateForBaseName(date);
   }
 
   /* =========================================================
@@ -1513,6 +1686,12 @@
     if (state.videoURL) URL.revokeObjectURL(state.videoURL);
     state.currentFile = file;
     state.videoURL = URL.createObjectURL(file);
+    // [v17] 保存ファイル名のベースは、選び直すたびに毎回このPromiseを
+    // resolveClipBaseName()で解決し直す（ファイル名ではなく撮影日時から
+    // 決定するため）。handleSave/handleSaveSnapshot側は必ずこの
+    // Promiseをawaitして使うことで、複数回保存しても同じ動画である限り
+    // 同じベース名になることを保証している。
+    state.baseNamePromise = resolveClipBaseName(file);
 
     const pv = $("previewVideo");
     pv.pause();
@@ -2791,7 +2970,10 @@
         setProgress(p);
         $("busySub").textContent = Math.round(p * 100) + "% (" + dur.toFixed(1) + "秒分)";
       }, cancelToken);
-      const base = sanitizeBase(state.currentFile.name);
+      // [v17] ファイル名ではなく撮影日時ベースのベース名を使う（フォトピッカー
+      // 経由の意味のない数字名に依存しないため）。loadVideoFile()で動画を
+      // 読み込んだ時点で解決を開始しているので、実際にはほぼ待たされない。
+      const base = (await state.baseNamePromise) || sanitizeBase(state.currentFile.name);
       const seq = nextSeq(base);
       const filename = buildFilename(base, seq, suffix, ext);
       const result = await saveBlob(blob, filename);
@@ -2859,7 +3041,8 @@
       ctx.drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
       if (!blob) { toast("静止画の書き出しに失敗しました"); return; }
-      const base = sanitizeBase(state.currentFile.name);
+      // [v17] こちらもクリップ保存と同じく撮影日時ベースのベース名を使う
+      const base = (await state.baseNamePromise) || sanitizeBase(state.currentFile.name);
       const posLabel = formatTimeForFilename(previewVideo.currentTime);
       const filename = base + "_" + posLabel + ".jpg";
       const result = await saveBlob(blob, filename);
